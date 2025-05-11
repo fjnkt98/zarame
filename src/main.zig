@@ -1,6 +1,5 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
+const std = @import("std");
+const lib = @import("zarame");
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
@@ -14,6 +13,7 @@ pub fn main() !void {
     const stdout = bw.writer();
 
     try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    try stdout.print("2 + 3 = {d}\n", .{lib.add(2, 3)});
 
     try bw.flush(); // Don't forget to flush!
 }
@@ -39,8 +39,3 @@ test "fuzz example" {
     };
     try std.testing.fuzz(Context{}, Context.testOne, .{});
 }
-
-const std = @import("std");
-
-/// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import("zarame_lib");
