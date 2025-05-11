@@ -42,9 +42,9 @@ test "create my array" {
 
 const entries_file = @embedFile("entries.csv");
 
-fn lineCount() usize {
+fn lineCount(comptime s: []const u8) usize {
     comptime var n: usize = 0;
-    comptime var iter = std.mem.splitScalar(u8, entries_file, '\n');
+    comptime var iter = std.mem.splitScalar(u8, s, '\n');
     inline while (comptime iter.next()) |_| {
         n += 1;
     }
@@ -74,6 +74,6 @@ test "read embeded file" {
 }
 
 test "count of lines" {
-    const n = lineCount();
+    const n = lineCount(entries_file);
     try std.testing.expectEqual(5, n);
 }
