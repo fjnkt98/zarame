@@ -84,3 +84,36 @@ test "count of lines" {
 
     try std.testing.expectEqual(4, n);
 }
+
+const data_file = @embedFile("data.csv");
+const line_count_of_data_csv_derived_at_compile_time = lineCount(data_file) catch @compileError("get count of entries");
+
+test "line count in compile time" {
+    try std.testing.expectEqual(6, line_count_of_data_csv_derived_at_compile_time);
+}
+
+fn getData() ![]i32 {
+    var data: [line_count_of_data_csv_derived_at_compile_time]i32 = undefined;
+
+    var stream = std.io.FixedBufferStream([]const u8){ .buffer = data_file, .pos = 0 };
+    const reader = stream.reader();
+
+    var buffer: [65536]u8 = undefined;
+    var i: usize = 0;
+    while (try reader.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
+        const value = try std.fmt.parseInt(i32, line, 10);
+        data[i] = value;
+        i += 1;
+    }
+
+    return data[0..];
+}
+
+test "get data" {
+    const data = try getData();
+
+    try std.testing.expectEqual(6, data.len);
+
+    const expected = [_]i32{ 1, 2, 3, 5, 8, 13 };
+    try std.testing.expectEqualSlices(i32, &expected, data);
+}
