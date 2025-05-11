@@ -42,10 +42,13 @@ test "create my array" {
 
 const entries_file = @embedFile("entries.csv");
 
-fn lineCount(comptime s: []const u8) usize {
-    comptime var n: usize = 0;
-    comptime var iter = std.mem.splitScalar(u8, s, '\n');
-    inline while (comptime iter.next()) |_| {
+fn lineCount(s: []const u8) !usize {
+    var stream = std.io.FixedBufferStream([]const u8){ .buffer = s, .pos = 0 };
+    const reader = stream.reader();
+
+    var n: usize = 0;
+    var buffer: [65536]u8 = undefined;
+    while (try reader.readUntilDelimiterOrEof(&buffer, '\n')) |_| {
         n += 1;
     }
     return n;
@@ -74,6 +77,10 @@ test "read embeded file" {
 }
 
 test "count of lines" {
-    const n = lineCount(entries_file);
-    try std.testing.expectEqual(5, n);
+    const n = comptime a: {
+        const n = try lineCount(entries_file);
+        break :a n;
+    };
+
+    try std.testing.expectEqual(4, n);
 }
