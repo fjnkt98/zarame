@@ -4,6 +4,12 @@
 const std = @import("std");
 const testing = std.testing;
 
+pub const trie = @import("trie.zig");
+
+test "test submodules" {
+    _ = @import("trie.zig");
+}
+
 pub export fn add(a: i32, b: i32) i32 {
     return a + b;
 }
@@ -116,4 +122,24 @@ test "get data" {
 
     const expected = [_]i32{ 1, 2, 3, 5, 8, 13 };
     try std.testing.expectEqualSlices(i32, &expected, data);
+}
+
+test "test" {
+    const allocator = std.testing.allocator;
+
+    var a = try std.ArrayList(u8).initCapacity(allocator, 4);
+    defer a.deinit();
+    try std.testing.expectEqual(0, a.items.len);
+
+    try a.append(1);
+    try std.testing.expectEqual(1, a.items.len);
+
+    try a.append(2);
+    try std.testing.expectEqual(2, a.items.len);
+
+    a.shrinkAndFree(2);
+    try std.testing.expectEqual(2, a.items.len);
+
+    try a.append(3);
+    try std.testing.expectEqual(3, a.items.len);
 }
