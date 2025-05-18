@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const root: usize = 0;
-const unused: i32 = -1;
 const terminator: u8 = '\x00';
 
 fn asc(_: void, a: []const u8, b: []const u8) bool {
