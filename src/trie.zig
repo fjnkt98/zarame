@@ -44,6 +44,121 @@ test "sort multi-byte strings" {
     try std.testing.expectEqualSlices([]const u8, &expected, &keywords);
 }
 
+pub fn Queue(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        allocator: std.mem.Allocator,
+        buffer: std.ArrayList(T),
+        head: usize,
+        tail: usize,
+        size: usize,
+
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{
+                .allocator = allocator,
+                .buffer = std.ArrayList(T).init(allocator),
+                .head = 0,
+                .tail = 0,
+                .size = 0,
+            };
+        }
+
+        pub fn deinit(self: Self) void {
+            self.buffer.deinit();
+        }
+
+        pub fn enqueue(self: *Self, item: T) !void {
+            if (self.size == self.buffer.items.len) {
+                try self.expand();
+            }
+
+            self.buffer.items[self.tail] = item;
+            self.tail = @mod(self.tail + 1, self.buffer.items.len);
+            self.size += 1;
+        }
+
+        pub fn dequeue(self: *Self) ?T {
+            if (self.size == 0) {
+                return null;
+            }
+            const item = self.buffer.items[self.head];
+            self.buffer.items[self.head] = undefined;
+            self.head = @mod(self.head + 1, self.buffer.items.len);
+            self.size -= 1;
+            return item;
+        }
+
+        pub fn empty(self: Self) bool {
+            return self.size == 0;
+        }
+
+        fn expand(self: *Self) !void {
+            var new = std.ArrayList(T).init(self.allocator);
+            const size = if (self.buffer.items.len == 0) 1 else 2 * self.buffer.items.len;
+            try new.resize(size);
+            for (0..self.buffer.items.len) |i| {
+                new.items[i] = self.buffer.items[@mod(self.head + i, self.buffer.items.len)];
+            }
+            self.buffer.deinit();
+            self.buffer = new;
+            self.head = 0;
+            self.tail = self.size;
+        }
+    };
+}
+
+test "enqueue and dequeue" {
+    const allocator = std.testing.allocator;
+    var queue = Queue(i32).init(allocator);
+    defer queue.deinit();
+
+    try std.testing.expect(queue.empty());
+
+    try queue.enqueue(1);
+    try queue.enqueue(2);
+    try queue.enqueue(3);
+
+    try std.testing.expect(!queue.empty());
+
+    try std.testing.expectEqual(1, queue.dequeue().?);
+    try std.testing.expectEqual(2, queue.dequeue().?);
+    try std.testing.expectEqual(3, queue.dequeue().?);
+    try std.testing.expectEqual(null, queue.dequeue());
+
+    try std.testing.expect(queue.empty());
+}
+
+test "input large number of items into queue" {
+    const allocator = std.testing.allocator;
+    var queue = Queue(i32).init(allocator);
+    defer queue.deinit();
+
+    for (0..100000) |i| {
+        try queue.enqueue(@as(i32, @intCast(i)));
+    }
+}
+
+const Node = struct {
+    const Self = @This();
+
+    index: usize,
+    depth: usize,
+    edges: std.ArrayList(i32),
+
+    pub fn init(index: usize, depth: usize, edges: std.ArrayList(i32)) !Self {
+        return .{
+            .index = index,
+            .depth = depth,
+            .edges = edges,
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        self.edges.deinit();
+    }
+};
+
 const DoubleArray = struct {
     const Self = @This();
 
@@ -107,16 +222,60 @@ const DoubleArray = struct {
         self.entries = sorted;
 
         var branches = try std.ArrayList(i32).initCapacity(self.allocator, self.entries.items.len);
-        defer branches.deinit();
 
         for (0.., self.entries.items) |i, _| {
             try branches.append(@intCast(i));
         }
 
-        try self.append(0, 0, branches.items);
+        var queue = Queue(Node).init(self.allocator);
+        defer queue.deinit();
+        try queue.enqueue(try Node.init(0, 0, branches));
+
+        while (queue.dequeue()) |node| {
+            defer node.deinit();
+
+            var chars = std.ArrayList(u8).init(self.allocator);
+            defer chars.deinit();
+            var subtree = std.AutoArrayHashMap(u8, std.ArrayList(i32)).init(self.allocator);
+            defer subtree.deinit();
+
+            for (node.edges.items) |id| {
+                const word = self.entries.items[@intCast(id)];
+                const char = if (node.depth >= word.len) terminator else word[node.depth];
+
+                if (chars.items.len == 0 or chars.getLast() != char) {
+                    try chars.append(char);
+                }
+                if (char != terminator) {
+                    const gop = try subtree.getOrPut(char);
+                    if (gop.found_existing) {
+                        try gop.value_ptr.*.append(id);
+                    } else {
+                        var tree = std.ArrayList(i32).init(self.allocator);
+                        try tree.append(id);
+                        gop.value_ptr.* = tree;
+                    }
+                }
+            }
+
+            try self.seekAndMark(node.index, chars.items);
+
+            for (chars.items) |char| {
+                const t: usize = @intCast(self.base.items[node.index] + @as(i32, char));
+                if (subtree.get(char)) |tree| {
+                    try queue.enqueue(try Node.init(
+                        t,
+                        node.depth + 1,
+                        tree,
+                    ));
+                } else {
+                    self.base.items[t] = -node.edges.items[0];
+                }
+            }
+        }
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: Self) void {
         self.base.deinit();
         self.check.deinit();
 
@@ -211,49 +370,6 @@ const DoubleArray = struct {
                 try self.expand();
             }
             try self.setCheck(t, @intCast(s));
-        }
-    }
-
-    fn append(self: *Self, s: usize, index: usize, branches: []const i32) !void {
-        var chars = std.ArrayList(u8).init(self.allocator);
-        defer chars.deinit();
-
-        var subtree = std.AutoArrayHashMap(u8, std.ArrayList(i32)).init(self.allocator);
-        defer {
-            for (subtree.values()) |v| {
-                v.deinit();
-            }
-            subtree.deinit();
-        }
-
-        for (branches) |id| {
-            const word = self.entries.items[@intCast(id)];
-            const c = if (index >= word.len) terminator else word[index];
-
-            if (chars.items.len == 0 or chars.getLast() != c) {
-                try chars.append(c);
-            }
-            if (c != terminator) {
-                const res = try subtree.getOrPut(c);
-                if (res.found_existing) {
-                    try res.value_ptr.*.append(id);
-                } else {
-                    var tree = std.ArrayList(i32).init(self.allocator);
-                    try tree.append(id);
-                    res.value_ptr.* = tree;
-                }
-            }
-        }
-
-        try self.seekAndMark(s, chars.items);
-        for (chars.items) |c| {
-            const t: usize = @intCast(self.base.items[s] + @as(i32, c));
-
-            if (subtree.get(c)) |tree| {
-                try self.append(t, index + 1, tree.items);
-            } else {
-                self.base.items[t] = -branches[0];
-            }
         }
     }
 
