@@ -27,7 +27,7 @@ test "sort ascii strings" {
     try std.testing.expectEqualSlices([]const u8, &expected, &keywords);
 }
 
-test "sort unicode strings" {
+test "sort multi-byte strings" {
     var keywords = [_][]const u8{
         "さしすせそ",
         "あいうえお",
@@ -257,7 +257,34 @@ const DoubleArray = struct {
         }
     }
 
-    pub fn search(self: Self, keyword: []const u8) ![]i32 {
+    pub fn prefixSearch(self: Self, keyword: []const u8) !?i32 {
+        var result: ?i32 = null;
+        var node: i32 = 0;
+        var next: i32 = 0;
+        for (keyword) |char| {
+            if (char == terminator) {
+                break;
+            }
+
+            next = self.base.items[@intCast(node)] + char;
+            if (@as(usize, @intCast(next)) >= self.base.items.len) {
+                break;
+            }
+            if (self.check.items[@intCast(next)] != node) {
+                break;
+            }
+
+            const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
+            if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
+                result = -self.base.items[@intCast(ahead)];
+            }
+            node = next;
+        }
+
+        return result;
+    }
+
+    pub fn commonPrefixSearch(self: Self, keyword: []const u8) ![]i32 {
         var results = std.ArrayList(i32).init(self.allocator);
         var node: i32 = 0;
         var next: i32 = 0;
@@ -356,7 +383,7 @@ test "seek and mark" {
     try std.testing.expectEqualSlices(i32, &check2, da.check.items);
 }
 
-test "search double array" {
+test "common prefix search ascii strings" {
     const allocator = std.testing.allocator;
     const entries = [_][]const u8{
         "a",
@@ -368,9 +395,43 @@ test "search double array" {
     var da = try DoubleArray.initCapacity(allocator, &entries, 32);
     defer da.deinit();
 
-    const results = try da.search("acb");
+    const results = try da.commonPrefixSearch("acb");
     defer allocator.free(results);
 
     const expected = [_]i32{ 0, 1 };
     try std.testing.expectEqualSlices(i32, &expected, results);
+}
+
+test "prefix search ascii strings" {
+    const allocator = std.testing.allocator;
+    const entries = [_][]const u8{
+        "a",
+        "ac",
+        "b",
+        "cab",
+        "cb",
+    };
+    var da = try DoubleArray.initCapacity(allocator, &entries, 32);
+    defer da.deinit();
+    const result = try da.prefixSearch("cab");
+    try std.testing.expect(result != null);
+    try std.testing.expectEqual(3, result.?);
+}
+
+test "prefix search multi-byte strings" {
+    const allocator = std.testing.allocator;
+    const entries = [_][]const u8{
+        "電気",
+        "電気通信",
+        "電気通信大学",
+        "電気通信大学大学院",
+        "電気通信大学大学院電気通信学研究科",
+        "電気通信大学院大学",
+        "電気通信大学電気通信学部",
+    };
+    var da = try DoubleArray.init(allocator, &entries);
+    defer da.deinit();
+
+    const result = try da.prefixSearch("電気通信大学大学院電気通信学研究科");
+    try std.testing.expectEqual(4, result.?);
 }
