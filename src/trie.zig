@@ -159,75 +159,9 @@ const Node = struct {
     }
 };
 
-pub const DoubleArrayBuilder = struct {
-    const Self = @This();
-
-    pub fn init() Self {
-        return .{};
-    }
-
-    pub fn build(self: Self, allocator: std.mem.Allocator, keywords: []const []const u8) !DoubleArray {
-        _ = self;
-        var da = try DoubleArray.init(allocator, keywords, 65536);
-
-        var branches = try std.ArrayList(i32).initCapacity(allocator, da.entries.items.len);
-        for (0.., da.entries.items) |i, _| {
-            try branches.append(@intCast(i));
-        }
-        // deinitialized later on by the node that owns it, so we won't do it here.
-
-        var queue = Queue(Node).init(allocator);
-        defer queue.deinit();
-        try queue.enqueue(Node.init(0, 0, branches));
-
-        while (queue.dequeue()) |node| {
-            defer node.deinit();
-
-            var chars = std.ArrayList(u8).init(allocator);
-            defer chars.deinit();
-            var subtree = std.AutoArrayHashMap(u8, std.ArrayList(i32)).init(allocator);
-            defer subtree.deinit();
-
-            for (node.edges.items) |id| {
-                const word = da.entries.items[@intCast(id)];
-                const char = if (node.depth >= word.len) terminator else word[node.depth];
-
-                if (chars.items.len == 0 or chars.getLast() != char) {
-                    try chars.append(char);
-                }
-                if (char != terminator) {
-                    const gop = try subtree.getOrPut(char);
-                    if (gop.found_existing) {
-                        try gop.value_ptr.*.append(id);
-                    } else {
-                        var tree = std.ArrayList(i32).init(allocator);
-                        try tree.append(id);
-                        gop.value_ptr.* = tree;
-                    }
-                }
-            }
-
-            const x = try da.seek(chars.items);
-            try da.setBase(node.index, x);
-            for (chars.items) |char| {
-                const t: usize = @intCast(da.base.items[node.index] + @as(i32, char));
-                if (t >= da.base.items.len) {
-                    try da.expand();
-                }
-                try da.setCheck(t, @intCast(node.index));
-
-                if (subtree.get(char)) |edges| {
-                    const next = Node.init(t, node.depth + 1, edges);
-                    try queue.enqueue(next);
-                } else {
-                    da.base.items[t] = -node.edges.items[0];
-                }
-            }
-        }
-
-        return da;
-    }
-};
+const DoubleArrayError = error{
+    DuplicatedEntryError,
+} || std.mem.Allocator.Error;
 
 const DoubleArray = struct {
     const Self = @This();
@@ -237,9 +171,25 @@ const DoubleArray = struct {
     check: std.ArrayList(i32),
     entries: std.ArrayList([]const u8),
 
-    /// Initialize DoubleArray with capacity.
+    /// Initialize DoubleArray with default capacity size. The elements of these arrays are not built at initialization.
+    /// You should call the `build()` method to build the elements of these arrays.
+    /// The values of `keywords` are copied and stored in sorted order.
+    ///
     /// You should deinitialize with `deinit()`.
-    pub fn init(allocator: std.mem.Allocator, keywords: []const []const u8, num: usize) std.mem.Allocator.Error!Self {
+    pub fn init(allocator: std.mem.Allocator, keywords: []const []const u8) DoubleArrayError!Self {
+        return try Self.initCapacity(allocator, keywords, 65536);
+    }
+
+    /// Initialize DoubleArray with capacity size. The elements of these arrays are not built at initialization.
+    /// You should call the `build()` method to build the elements of these arrays.
+    /// The values of `keywords` are copied and stored in sorted order.
+    ///
+    /// Asserts num is greather than 0.
+    ///
+    /// You should deinitialize with `deinit()`.
+    pub fn initCapacity(allocator: std.mem.Allocator, keywords: []const []const u8, num: usize) DoubleArrayError!Self {
+        std.debug.assert(num > 0);
+
         var base = try std.ArrayList(i32).initCapacity(allocator, num);
         errdefer base.deinit();
         var check = try std.ArrayList(i32).initCapacity(allocator, num);
@@ -266,12 +216,82 @@ const DoubleArray = struct {
         }
         std.mem.sort([]const u8, entries.items, {}, asc);
 
+        if (entries.items.len > 0) {
+            var entry = entries.items[0];
+            for (entries.items[1..]) |e| {
+                if (std.mem.eql(u8, entry, e)) {
+                    return DoubleArrayError.DuplicatedEntryError;
+                }
+                entry = e;
+            }
+        }
+
         return Self{
             .allocator = allocator,
             .base = base,
             .check = check,
             .entries = entries,
         };
+    }
+
+    /// Build double array.
+    pub fn build(self: *Self) std.mem.Allocator.Error!void {
+        var branches = try std.ArrayList(i32).initCapacity(self.allocator, self.entries.items.len);
+        for (0.., self.entries.items) |i, _| {
+            try branches.append(@intCast(i));
+        }
+        // deinitialized later on by the node that owns it, so we won't do it here.
+
+        var queue = Queue(Node).init(self.allocator);
+        defer queue.deinit();
+        try queue.enqueue(Node.init(0, 0, branches));
+
+        while (queue.dequeue()) |node| {
+            defer node.deinit();
+
+            var chars = std.ArrayList(u8).init(self.allocator);
+            defer chars.deinit();
+            var subtree = std.AutoArrayHashMap(u8, std.ArrayList(i32)).init(self.allocator);
+            defer subtree.deinit();
+
+            for (node.edges.items) |id| {
+                const word = self.entries.items[@intCast(id)];
+                const char = if (node.depth >= word.len) terminator else word[node.depth];
+
+                if (chars.items.len == 0 or chars.getLast() != char) {
+                    try chars.append(char);
+                }
+                if (char != terminator) {
+                    const gop = try subtree.getOrPut(char);
+                    if (gop.found_existing) {
+                        try gop.value_ptr.*.append(id);
+                    } else {
+                        var tree = std.ArrayList(i32).init(self.allocator);
+                        try tree.append(id);
+                        gop.value_ptr.* = tree;
+                    }
+                }
+            }
+
+            const x = try self.seek(chars.items);
+            try self.setBase(node.index, x);
+            for (chars.items) |char| {
+                const t: usize = @intCast(self.base.items[node.index] + @as(i32, char));
+                if (t >= self.base.items.len) {
+                    try self.expand();
+                }
+                try self.setCheck(t, @intCast(node.index));
+
+                if (subtree.get(char)) |edges| {
+                    const next = Node.init(t, node.depth + 1, edges);
+                    try queue.enqueue(next);
+                } else {
+                    self.base.items[t] = -node.edges.items[0];
+                }
+            }
+        }
+
+        self.shrink();
     }
 
     /// Release all allocated memory.
@@ -301,6 +321,27 @@ const DoubleArray = struct {
         self.base.items[@as(usize, @intCast(start))] = -(2 * @as(i32, @intCast(n)) - 1);
         self.check.items[@as(usize, @intCast(end))] = -@as(i32, @intCast(n));
         self.check.items[2 * @as(usize, @intCast(n)) - 1] = -start;
+    }
+
+    /// Release unused area and reduce array size.
+    fn shrink(self: *Self) void {
+        var len = self.check.items.len;
+        var i: usize = 0;
+        while (i < self.check.items.len) {
+            if (self.check.items[self.check.items.len -% i -% 1] < 0) {
+                len -%= 1;
+            } else {
+                break;
+            }
+            i += 1;
+        }
+
+        if (len == self.check.items.len) {
+            return;
+        }
+
+        self.base.shrinkAndFree(len);
+        self.check.shrinkAndFree(len);
     }
 
     /// Set the specified value into `base[s]`, and update linked-list.
@@ -459,23 +500,65 @@ const DoubleArray = struct {
     }
 };
 
-test "create double array" {
+test "expand double array" {
     const allocator = std.testing.allocator;
-    const keywords = [5][]const u8{
+    var da = try DoubleArray.initCapacity(allocator, &.{}, 4);
+    defer da.deinit();
+
+    const base1 = [_]i32{ 1, -3, -1, -2 };
+    const check1 = [_]i32{ -1, -2, -3, -1 };
+    try std.testing.expectEqualSlices(i32, &base1, da.base.items);
+    try std.testing.expectEqualSlices(i32, &check1, da.check.items);
+
+    try da.expand();
+
+    const base2 = [_]i32{ 1, -7, -1, -2, -3, -4, -5, -6 };
+    const check2 = [_]i32{ -1, -2, -3, -4, -5, -6, -7, -1 };
+    try std.testing.expectEqualSlices(i32, &base2, da.base.items);
+    try std.testing.expectEqualSlices(i32, &check2, da.check.items);
+}
+
+test "shrink double array" {
+    const allocator = std.testing.allocator;
+    var da = try DoubleArray.initCapacity(allocator, &.{}, 4);
+    defer da.deinit();
+
+    const base1 = [_]i32{ 1, -3, -1, -2 };
+    const check1 = [_]i32{ -1, -2, -3, -1 };
+    try std.testing.expectEqualSlices(i32, &base1, da.base.items);
+    try std.testing.expectEqualSlices(i32, &check1, da.check.items);
+
+    da.shrink();
+
+    try std.testing.expectEqual(0, da.base.items.len);
+    try std.testing.expectEqual(0, da.check.items.len);
+}
+
+test "build and shrink" {
+    const allocator = std.testing.allocator;
+    const keywords = [_][]const u8{
         "a",
         "ac",
         "b",
         "cab",
         "cb",
     };
-
-    var da = try DoubleArray.init(allocator, &keywords, 8);
+    const cap = 65536;
+    var da = try DoubleArray.initCapacity(allocator, &keywords, cap);
     defer da.deinit();
+
+    try std.testing.expectEqual(cap, da.base.items.len);
+    try std.testing.expectEqual(cap, da.check.items.len);
+
+    try da.build();
+
+    try std.testing.expect(da.base.items.len < cap);
+    try std.testing.expect(da.check.items.len < cap);
 }
 
 test "set base" {
     const allocator = std.testing.allocator;
-    var da = try DoubleArray.init(allocator, &.{}, 8);
+    var da = try DoubleArray.initCapacity(allocator, &.{}, 8);
     defer da.deinit();
 
     const base1 = [_]i32{ 1, -7, -1, -2, -3, -4, -5, -6 };
@@ -496,7 +579,7 @@ test "set base" {
 
 test "set check" {
     const allocator = std.testing.allocator;
-    var da = try DoubleArray.init(allocator, &.{}, 8);
+    var da = try DoubleArray.initCapacity(allocator, &.{}, 8);
     defer da.deinit();
 
     const base1 = [_]i32{ 1, -7, -1, -2, -3, -4, -5, -6 };
@@ -513,7 +596,7 @@ test "set check" {
 
 test "seek" {
     const allocator = std.testing.allocator;
-    var da = try DoubleArray.init(allocator, &.{}, 9);
+    var da = try DoubleArray.initCapacity(allocator, &.{}, 9);
     defer da.deinit();
 
     const base1 = [_]i32{ 1, -8, -1, -2, -3, -4, -5, -6, -7 };
@@ -535,9 +618,9 @@ test "common prefix search ascii strings" {
         "cab",
         "cb",
     };
-    const builder = DoubleArrayBuilder.init();
-    const da = try builder.build(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &keywords);
     defer da.deinit();
+    try da.build();
 
     const results = try da.commonPrefixSearch("acb");
     defer allocator.free(results);
@@ -555,9 +638,9 @@ test "prefix search ascii strings" {
         "cab",
         "cb",
     };
-    const builder = DoubleArrayBuilder.init();
-    const da = try builder.build(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &keywords);
     defer da.deinit();
+    try da.build();
 
     const result = da.prefixSearch("cab");
     try std.testing.expect(result != null);
@@ -575,9 +658,9 @@ test "prefix search multi-byte strings" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    const builder = DoubleArrayBuilder.init();
-    const da = try builder.build(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &keywords);
     defer da.deinit();
+    try da.build();
 
     const result = da.prefixSearch("電気通信大学大学院電気通信学研究科");
     try std.testing.expectEqual(4, result.?);
@@ -594,9 +677,9 @@ test "prefix search not found" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    const builder = DoubleArrayBuilder.init();
-    const da = try builder.build(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &keywords);
     defer da.deinit();
+    try da.build();
 
     const result = da.prefixSearch("電通");
     try std.testing.expect(result == null);
@@ -613,9 +696,9 @@ test "search found input keyword" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    const builder = DoubleArrayBuilder.init();
-    const da = try builder.build(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &keywords);
     defer da.deinit();
+    try da.build();
 
     const result = da.search("電気通信大学院大学");
     try std.testing.expectEqual(5, result.?);
@@ -632,9 +715,9 @@ test "search not found input keyword" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    const builder = DoubleArrayBuilder.init();
-    const da = try builder.build(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &keywords);
     defer da.deinit();
+    try da.build();
 
     const result = da.search("電通");
     try std.testing.expect(result == null);
