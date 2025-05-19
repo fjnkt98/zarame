@@ -1,3 +1,5 @@
+//! Trie data structure implemented by Double-Array.
+
 const std = @import("std");
 
 const root: usize = 0;
@@ -43,7 +45,7 @@ test "sort multi-byte strings" {
     try std.testing.expectEqualSlices([]const u8, &expected, &keywords);
 }
 
-pub fn Queue(comptime T: type) type {
+fn Queue(comptime T: type) type {
     return struct {
         const Self = @This();
 
@@ -159,11 +161,11 @@ const Node = struct {
     }
 };
 
-const DoubleArrayError = error{
+pub const DoubleArrayError = error{
     DuplicatedEntryError,
 } || std.mem.Allocator.Error;
 
-const DoubleArray = struct {
+pub const DoubleArray = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
