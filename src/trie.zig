@@ -228,76 +228,6 @@ pub const DoubleArrayBuilder = struct {
     }
 };
 
-/// DoubleArraySearcher searches using by built DoubleArray instance.
-pub const DoubleArraySearcher = struct {
-    const Self = @This();
-
-    da: DoubleArray,
-
-    pub fn init(da: DoubleArray) Self {
-        return .{
-            .da = da,
-        };
-    }
-
-    /// Returns ID of keyword which has the longest common prefix in the input if found.
-    pub fn prefixSearch(self: Self, input: []const u8) !?i32 {
-        var result: ?i32 = null;
-        var node: i32 = 0;
-        var next: i32 = 0;
-        for (input) |char| {
-            if (char == terminator) {
-                break;
-            }
-
-            next = self.base.items[@intCast(node)] + char;
-            if (@as(usize, @intCast(next)) >= self.base.items.len) {
-                break;
-            }
-            if (self.check.items[@intCast(next)] != node) {
-                break;
-            }
-
-            const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
-            if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
-                result = -self.base.items[@intCast(ahead)];
-            }
-            node = next;
-        }
-
-        return result;
-    }
-
-    /// Returns IDs of the keywords sharing common prefix in the input.
-    pub fn commonPrefixSearch(self: Self, allocator: std.mem.Allocator, input: []const u8) !std.ArrayList(i32) {
-        var results = std.ArrayList(i32).init(allocator);
-        var node: i32 = 0;
-        var next: i32 = 0;
-        for (input) |char| {
-            if (char == terminator) {
-                break;
-            }
-
-            next = self.base.items[@intCast(node)] + char;
-            if (@as(usize, @intCast(next)) >= self.base.items.len) {
-                break;
-            }
-            if (self.check.items[@intCast(next)] != node) {
-                break;
-            }
-
-            const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
-            if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
-                const id = -self.base.items[@intCast(ahead)];
-                try results.append(id);
-            }
-            node = next;
-        }
-
-        return results;
-    }
-};
-
 const DoubleArray = struct {
     const Self = @This();
 
@@ -479,6 +409,37 @@ const DoubleArray = struct {
 
         return results[results.len - 1];
     }
+
+    /// Returns ID of the keyword if found.
+    pub fn search(self: Self, input: []const u8) !?i32 {
+        if (input.len == 0) {
+            return null;
+        }
+
+        var node: i32 = 0;
+        var next: i32 = 0;
+        for (input) |char| {
+            if (char == terminator) {
+                return null;
+            }
+
+            next = self.base.items[@intCast(node)] + char;
+            if (@as(usize, @intCast(next)) >= self.base.items.len) {
+                return null;
+            }
+            if (self.check.items[@intCast(next)] != node) {
+                return null;
+            }
+
+            node = next;
+        }
+
+        const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
+        if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
+            return -self.base.items[@intCast(ahead)];
+        }
+        return null;
+    }
 };
 
 test "create double array" {
@@ -603,4 +564,42 @@ test "prefix search multi-byte strings" {
 
     const result = try da.prefixSearch("電気通信大学大学院電気通信学研究科");
     try std.testing.expectEqual(4, result.?);
+}
+
+test "search found input keyword" {
+    const allocator = std.testing.allocator;
+    const keywords = [_][]const u8{
+        "電気",
+        "電気通信",
+        "電気通信大学",
+        "電気通信大学大学院",
+        "電気通信大学大学院電気通信学研究科",
+        "電気通信大学院大学",
+        "電気通信大学電気通信学部",
+    };
+    const builder = DoubleArrayBuilder.init();
+    const da = try builder.build(allocator, &keywords);
+    defer da.deinit();
+
+    const result = try da.search("電気通信大学院大学");
+    try std.testing.expectEqual(5, result.?);
+}
+
+test "search not found input keyword" {
+    const allocator = std.testing.allocator;
+    const keywords = [_][]const u8{
+        "電気",
+        "電気通信",
+        "電気通信大学",
+        "電気通信大学大学院",
+        "電気通信大学大学院電気通信学研究科",
+        "電気通信大学院大学",
+        "電気通信大学電気通信学部",
+    };
+    const builder = DoubleArrayBuilder.init();
+    const da = try builder.build(allocator, &keywords);
+    defer da.deinit();
+
+    const result = try da.search("電通");
+    try std.testing.expect(result == null);
 }
