@@ -172,11 +172,18 @@ pub fn useEmbeddedDictionary(allocator: std.mem.Allocator, dict_data: []const u8
     );
 
     var tokenizer = zarame.Tokenizer.init(allocator, dict);
+    
+    // Save reference to entries before tokenizer.deinit() frees the ArrayList
+    const entries_to_free = result.entries.items;
+    
     defer {
-        // Clean up
+        // Clean up in correct order
+        // 1. Deinit tokenizer (frees dictionary's connection_costs and entries ArrayList)
         tokenizer.deinit();
+        // 2. Free the DoubleArray
         result.da.deinit();
-        for (result.entries.items) |entry| {
+        // 3. Free the entry data that was allocated during deserialization
+        for (entries_to_free) |entry| {
             allocator.free(entry.surface);
             for (entry.features) |feature| {
                 allocator.free(feature);

@@ -46,10 +46,8 @@ pub fn viterbi(allocator: std.mem.Allocator, lattice: *Lattice, dictionary: *con
 fn forwardPass(lattice: *Lattice, dictionary: *const Dictionary) !void {
     // Iterate through each position in the lattice
     for (0..lattice.nodes.items.len) |pos| {
-        const nodes_at_pos = lattice.nodes.items[pos].items;
-
         // For each node at this position
-        for (nodes_at_pos, 0..) |*current_node, current_idx| {
+        for (lattice.nodes.items[pos].items, 0..) |*current_node, current_idx| {
             // Find the best previous node
             if (current_node.start == 0) {
                 // This is BOS or starts from beginning, already initialized
@@ -69,16 +67,14 @@ fn forwardPass(lattice: *Lattice, dictionary: *const Dictionary) !void {
                 // Update if this path is better
                 if (total_cost < current_node.min_cost) {
                     current_node.min_cost = total_cost;
-                    // Calculate global index for prev_node
-                    // We need to store a way to reference the previous node
-                    // For simplicity, we'll use a flat index calculation
-                    // This is a simplified version - in production, you'd want a more robust indexing scheme
+                    // Store the index of the previous node within its position
+                    // The position itself is current_node.start
                     current_node.prev_node = prev_idx;
                 }
             }
 
-            // Update the node in the lattice
-            lattice.nodes.items[pos].items[current_idx] = current_node.*;
+            // Update the node in the lattice (nodes are mutable through the pointer)
+            _ = current_idx; // Keep for future use if needed
         }
     }
 }
@@ -156,8 +152,8 @@ fn pathToTokens(
 
         const node = nodes_at_pos[node_idx];
 
-        // Skip BOS and EOS nodes
-        if (node.entry_id < 0) {
+        // Skip BOS and EOS nodes (encoded as entry_id == -1)
+        if (node.entry_id == -1) {
             continue;
         }
 
@@ -197,7 +193,7 @@ pub fn buildLattice(
         // Try to match dictionary entries starting at this position
         const remaining = text[pos..];
         const entry_ids = try dictionary.lookup(remaining);
-        defer allocator.free(entry_ids);
+        errdefer allocator.free(entry_ids);
 
         // Add nodes for each matching entry
         for (entry_ids) |entry_id| {
@@ -218,6 +214,8 @@ pub fn buildLattice(
             );
             try lattice.addNode(node);
         }
+
+        allocator.free(entry_ids);
 
         // Move to next byte position
         // In a real implementation, you'd want to move by character boundary

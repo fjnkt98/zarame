@@ -50,14 +50,14 @@ fn demonstrateDoubleArray(allocator: std.mem.Allocator, writer: anytype) !void {
     const test_word = "東京";
     const result = da.search(test_word);
     if (result) |id| {
-        try writer.print("Found '{}' with ID: {}\n", .{ std.zig.fmtEscapes(test_word), id });
+        try writer.print("Found '{s}' with ID: {}\n", .{ std.zig.fmtEscapes(test_word), id });
     }
 
     // Test prefix search
     const input = "東京に行く";
     const ids = try da.commonPrefixSearch(input);
     defer allocator.free(ids);
-    try writer.print("Common prefix search in '{}': {} matches\n", .{ std.zig.fmtEscapes(input), ids.len });
+    try writer.print("Common prefix search in '{s}': {} matches\n", .{ std.zig.fmtEscapes(input), ids.len });
 }
 
 fn demonstrateDictionary(allocator: std.mem.Allocator, writer: anytype) !void {

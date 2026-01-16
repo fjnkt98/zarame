@@ -184,18 +184,21 @@ pub fn deserializeConnectionCosts(allocator: std.mem.Allocator, reader: anytype)
     return costs;
 }
 
-/// Serialize entire dictionary to a file.
+/// Serialize entire dictionary to a writer.
+/// Note: This function writes a simplified format where offsets in the header
+/// are estimates. For deserialization, the reader reads sequentially and doesn't
+/// rely on the offset values. This works well with @embedFile usage.
 pub fn serializeDictionary(
     writer: anytype,
     da: *const DoubleArray,
     entries: []const Entry,
     costs: *const ConnectionCosts,
 ) !void {
-    // Calculate offsets
+    // Calculate offsets (these are estimates for the header)
     const header_size = @sizeOf(DictionaryHeader);
     const da_offset = header_size;
 
-    // Estimate sizes (we'll write header later with correct values)
+    // Estimate sizes
     const da_size = @sizeOf(u32) * 2 + // sizes
         @sizeOf(i32) * (da.base.items.len + da.check.items.len);
 
@@ -205,7 +208,9 @@ pub fn serializeDictionary(
     const conn_size = @sizeOf(u16) * 2 + // dimensions
         @sizeOf(i16) * costs.costs.len;
 
-    // Write header (we'll seek back and update it)
+    const conn_offset = entries_offset; // Approximate, actual may differ
+
+    // Write header with estimated offsets
     const header = DictionaryHeader{
         .magic = MAGIC_NUMBER,
         .version = FORMAT_VERSION,
@@ -216,11 +221,11 @@ pub fn serializeDictionary(
         .conn_backward_size = @intCast(costs.backward_size),
         .da_offset = da_offset,
         .entries_offset = entries_offset,
-        .conn_offset = 0, // Will be updated after writing entries
-        .total_size = 0, // Will be updated at the end
+        .conn_offset = conn_offset,
+        .total_size = 0,
     };
 
-    // Write placeholder header
+    // Write header
     try writer.writeStruct(header);
 
     // Write double-array

@@ -132,10 +132,15 @@ pub const Dictionary = struct {
         };
     }
 
+    /// Release resources owned by the dictionary.
+    /// Note: This frees the connection_costs and the entries ArrayList structure,
+    /// but does NOT free:
+    /// - The DoubleArray trie (passed as a const pointer, owned by caller)
+    /// - The entry data within entries (surface and features slices are owned by caller)
+    /// Caller must manage the lifetime of the trie and entry data separately.
     pub fn deinit(self: Self) void {
         self.connection_costs.deinit();
-        // Note: entries themselves contain borrowed slices, 
-        // so we don't free them here - they should be managed by the caller
+        // entries ArrayList is freed, but not the entry data itself
         self.entries.deinit();
     }
 

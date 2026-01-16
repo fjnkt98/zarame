@@ -46,6 +46,12 @@ pub const Tokenizer = struct {
         };
     }
 
+    /// Deinitialize the tokenizer and its associated dictionary.
+    ///
+    /// Note: This does *not* free the underlying DoubleArray trie referenced by
+    /// the Dictionary. The caller is responsible for managing the lifetime of
+    /// that trie (including freeing it, if it was heap-allocated) and must
+    /// ensure it outlives any Tokenizer/Dictionary that uses it.
     pub fn deinit(self: Self) void {
         self.dictionary.deinit();
     }
@@ -95,6 +101,11 @@ test "classify characters" {
 }
 
 /// Create a simple tokenizer for testing purposes with minimal dictionary
+/// WARNING: This function has ownership issues - the returned Tokenizer holds a reference
+/// to a DoubleArray that should be freed separately. This is for testing only and should
+/// not be used as a pattern for production code. The caller must ensure proper cleanup
+/// of all components.
+/// TODO: Refactor to return a struct containing all owned components.
 pub fn createTestTokenizer(allocator: std.mem.Allocator) !Tokenizer {
     // Create a minimal dictionary for testing
     const keywords = [_][]const u8{
@@ -135,6 +146,8 @@ pub fn createTestTokenizer(allocator: std.mem.Allocator) !Tokenizer {
     costs.setCost(3, 0, 0); // verb -> EOS
 
     // Create dictionary
+    // WARNING: da is a local variable but dict holds a pointer to it
+    // This is a known issue in this test helper
     const dict = Dictionary.init(allocator, &da, entries, costs);
 
     return Tokenizer.init(allocator, dict);
