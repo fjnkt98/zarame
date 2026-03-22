@@ -60,7 +60,7 @@ fn lineCount(s: []const u8) !usize {
     return n;
 }
 
-test "read embeded file" {
+test "read embedded file" {
     const allocator = std.testing.allocator;
     var stream = std.io.FixedBufferStream([]const u8){ .buffer = std.mem.sliceTo(entries_file, 0), .pos = 0 };
     const reader = stream.reader();
