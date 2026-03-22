@@ -45,6 +45,92 @@ test "sort multi-byte strings" {
     try std.testing.expectEqualSlices([]const u8, &expected, &keywords);
 }
 
+fn Queue(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        buffer: std.ArrayList(T),
+        head: usize,
+        tail: usize,
+        size: usize,
+
+        pub const empty: Self = .{
+            .buffer = std.ArrayList(T).empty,
+            .head = 0,
+            .tail = 0,
+            .size = 0,
+        };
+
+        pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+            self.buffer.deinit(allocator);
+        }
+
+        pub fn append(self: *Self, allocator: std.mem.Allocator, item: T) std.mem.Allocator.Error!void {
+            if (self.size == self.buffer.items.len) {
+                try self.expand(allocator);
+            }
+
+            self.buffer.items[self.tail] = item;
+            self.tail = @mod(self.tail + 1, self.buffer.items.len);
+            self.size += 1;
+        }
+
+        pub fn popFront(self: *Self) ?T {
+            if (self.size == 0) {
+                return null;
+            }
+            const item = self.buffer.items[self.head];
+            self.buffer.items[self.head] = undefined;
+            self.head = @mod(self.head + 1, self.buffer.items.len);
+            self.size -= 1;
+            return item;
+        }
+
+        fn expand(self: *Self, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
+            var new = std.ArrayList(T).empty;
+            const size = if (self.buffer.items.len == 0) 1 else 2 * self.buffer.items.len;
+            try new.resize(allocator, size);
+            for (0..self.buffer.items.len) |i| {
+                new.items[i] = self.buffer.items[@mod(self.head + i, self.buffer.items.len)];
+            }
+            self.buffer.deinit(allocator);
+            self.buffer = new;
+            self.head = 0;
+            self.tail = self.size;
+        }
+    };
+}
+
+test "append and popFront" {
+    const allocator = std.testing.allocator;
+    var queue: Queue(i32) = .empty;
+    defer queue.deinit(allocator);
+
+    try std.testing.expect(queue.size == 0);
+
+    try queue.append(allocator, 1);
+    try queue.append(allocator, 2);
+    try queue.append(allocator, 3);
+
+    try std.testing.expect(queue.size != 0);
+
+    try std.testing.expectEqual(1, queue.popFront().?);
+    try std.testing.expectEqual(2, queue.popFront().?);
+    try std.testing.expectEqual(3, queue.popFront().?);
+    try std.testing.expectEqual(null, queue.popFront());
+
+    try std.testing.expect(queue.size == 0);
+}
+
+test "input large number of items into queue" {
+    const allocator = std.testing.allocator;
+    var queue: Queue(i32) = .empty;
+    defer queue.deinit(allocator);
+
+    for (0..100000) |i| {
+        try queue.append(allocator, @as(i32, @intCast(i)));
+    }
+}
 
 /// Item of the queue for BFS.
 const Node = struct {
@@ -150,9 +236,9 @@ pub const DoubleArray = struct {
         }
         // deinitialized later on by the node that owns it, so we won't do it here.
 
-        var queue: std.Deque(Node) = .empty;
+        var queue: Queue(Node) = .empty;
         defer queue.deinit(self.allocator);
-        try queue.pushBack(self.allocator, Node.init(0, 0, branches));
+        try queue.append(self.allocator, Node.init(0, 0, branches));
 
         while (queue.popFront()) |node| {
             defer node.deinit(self.allocator);
@@ -192,7 +278,7 @@ pub const DoubleArray = struct {
 
                 if (subtree.get(char)) |edges| {
                     const next = Node.init(t, node.depth + 1, edges);
-                    try queue.pushBack(self.allocator, next);
+                    try queue.append(self.allocator, next);
                 } else {
                     self.base.items[t] = -node.edges.items[0];
                 }
