@@ -5,9 +5,17 @@ const std = @import("std");
 const testing = std.testing;
 
 pub const trie = @import("trie.zig");
+pub const dictionary = @import("dictionary.zig");
+
+// Re-export commonly used types
+pub const DoubleArray = trie.DoubleArray;
+pub const Entry = dictionary.Entry;
+pub const ConnectionCosts = dictionary.ConnectionCosts;
+pub const Dictionary = dictionary.Dictionary;
 
 test "test submodules" {
     _ = @import("trie.zig");
+    _ = @import("dictionary.zig");
 }
 
 pub export fn add(a: i32, b: i32) i32 {
