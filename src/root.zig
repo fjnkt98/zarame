@@ -66,14 +66,14 @@ test "read embedded file" {
     const reader = stream.reader();
 
     var count: i32 = 0;
-    var result = std.ArrayList(u8).init(allocator);
-    defer result.deinit();
+    var result = std.ArrayList(u8){};
+    defer result.deinit(allocator);
 
     while (try reader.readUntilDelimiterOrEofAlloc(allocator, '\n', 1024)) |line| {
         defer allocator.free(line);
 
-        try result.appendSlice(line);
-        try result.append(' ');
+        try result.appendSlice(allocator, line);
+        try result.append(allocator, ' ');
 
         count += 1;
     }
@@ -128,18 +128,18 @@ test "test" {
     const allocator = std.testing.allocator;
 
     var a = try std.ArrayList(u8).initCapacity(allocator, 4);
-    defer a.deinit();
+    defer a.deinit(allocator);
     try std.testing.expectEqual(0, a.items.len);
 
-    try a.append(1);
+    try a.append(allocator, 1);
     try std.testing.expectEqual(1, a.items.len);
 
-    try a.append(2);
+    try a.append(allocator, 2);
     try std.testing.expectEqual(2, a.items.len);
 
-    a.shrinkAndFree(2);
+    a.shrinkAndFree(allocator, 2);
     try std.testing.expectEqual(2, a.items.len);
 
-    try a.append(3);
+    try a.append(allocator, 3);
     try std.testing.expectEqual(3, a.items.len);
 }

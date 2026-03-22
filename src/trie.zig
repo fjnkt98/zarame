@@ -58,7 +58,7 @@ fn Queue(comptime T: type) type {
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .allocator = allocator,
-                .buffer = std.ArrayList(T).init(allocator),
+                .buffer = std.ArrayList(T){},
                 .head = 0,
                 .tail = 0,
                 .size = 0,
@@ -66,7 +66,7 @@ fn Queue(comptime T: type) type {
         }
 
         pub fn deinit(self: Self) void {
-            self.buffer.deinit();
+            self.buffer.deinit(self.allocator);
         }
 
         pub fn enqueue(self: *Self, item: T) std.mem.Allocator.Error!void {
@@ -95,13 +95,13 @@ fn Queue(comptime T: type) type {
         }
 
         fn expand(self: *Self) std.mem.Allocator.Error!void {
-            var new = std.ArrayList(T).init(self.allocator);
+            var new = std.ArrayList(T){};
             const size = if (self.buffer.items.len == 0) 1 else 2 * self.buffer.items.len;
-            try new.resize(size);
+            try new.resize(self.allocator, size);
             for (0..self.buffer.items.len) |i| {
                 new.items[i] = self.buffer.items[@mod(self.head + i, self.buffer.items.len)];
             }
-            self.buffer.deinit();
+            self.buffer.deinit(self.allocator);
             self.buffer = new;
             self.head = 0;
             self.tail = self.size;
@@ -156,8 +156,8 @@ const Node = struct {
         };
     }
 
-    pub fn deinit(self: Self) void {
-        self.edges.deinit();
+    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+        self.edges.deinit(allocator);
     }
 };
 
@@ -193,15 +193,15 @@ pub const DoubleArray = struct {
         std.debug.assert(num > 0);
 
         var base = try std.ArrayList(i32).initCapacity(allocator, num);
-        errdefer base.deinit();
+        errdefer base.deinit(allocator);
         var check = try std.ArrayList(i32).initCapacity(allocator, num);
-        errdefer check.deinit();
-        var entries = std.ArrayList([]const u8).init(allocator);
-        errdefer entries.deinit();
+        errdefer check.deinit(allocator);
+        var entries = std.ArrayList([]const u8){};
+        errdefer entries.deinit(allocator);
 
         // Initialize base and check arrays as a doubly-linked list to manage available space.
-        try base.resize(num);
-        try check.resize(num);
+        try base.resize(allocator, num);
+        try check.resize(allocator, num);
         base.items[root] = 1; // the value of base[0] is 1. (special value)
         check.items[root] = -1; // the value of check[0] represents "leftmost available space index (saved as a negative value)"
         for (1..num) |i| {
@@ -214,7 +214,7 @@ pub const DoubleArray = struct {
         // Sort and copy the word entires.
         for (keywords) |w| {
             const word = try allocator.dupe(u8, w);
-            try entries.append(word);
+            try entries.append(allocator, word);
         }
         std.mem.sort([]const u8, entries.items, {}, asc);
 
@@ -240,7 +240,7 @@ pub const DoubleArray = struct {
     pub fn build(self: *Self) std.mem.Allocator.Error!void {
         var branches = try std.ArrayList(i32).initCapacity(self.allocator, self.entries.items.len);
         for (0.., self.entries.items) |i, _| {
-            try branches.append(@intCast(i));
+            try branches.append(self.allocator, @intCast(i));
         }
         // deinitialized later on by the node that owns it, so we won't do it here.
 
@@ -249,10 +249,10 @@ pub const DoubleArray = struct {
         try queue.enqueue(Node.init(0, 0, branches));
 
         while (queue.dequeue()) |node| {
-            defer node.deinit();
+            defer node.deinit(self.allocator);
 
-            var chars = std.ArrayList(u8).init(self.allocator);
-            defer chars.deinit();
+            var chars = std.ArrayList(u8){};
+            defer chars.deinit(self.allocator);
             var subtree = std.AutoArrayHashMap(u8, std.ArrayList(i32)).init(self.allocator);
             defer subtree.deinit();
 
@@ -261,15 +261,15 @@ pub const DoubleArray = struct {
                 const char = if (node.depth >= word.len) terminator else word[node.depth];
 
                 if (chars.items.len == 0 or chars.getLast() != char) {
-                    try chars.append(char);
+                    try chars.append(self.allocator, char);
                 }
                 if (char != terminator) {
                     const gop = try subtree.getOrPut(char);
                     if (gop.found_existing) {
-                        try gop.value_ptr.*.append(id);
+                        try gop.value_ptr.*.append(self.allocator, id);
                     } else {
-                        var tree = std.ArrayList(i32).init(self.allocator);
-                        try tree.append(id);
+                        var tree = std.ArrayList(i32){};
+                        try tree.append(self.allocator, id);
                         gop.value_ptr.* = tree;
                     }
                 }
@@ -298,21 +298,21 @@ pub const DoubleArray = struct {
 
     /// Release all allocated memory.
     pub fn deinit(self: Self) void {
-        self.base.deinit();
-        self.check.deinit();
+        self.base.deinit(self.allocator);
+        self.check.deinit(self.allocator);
 
         for (self.entries.items) |e| {
             self.allocator.free(e);
         }
-        self.entries.deinit();
+        self.entries.deinit(self.allocator);
     }
 
     /// Double the array size.
     /// It also performs reconnection processing of the linked list.
     fn expand(self: *Self) std.mem.Allocator.Error!void {
         const n = self.base.items.len;
-        try self.base.resize(2 * n);
-        try self.check.resize(2 * n);
+        try self.base.resize(self.allocator, 2 * n);
+        try self.check.resize(self.allocator, 2 * n);
         for (n..2 * n) |i| {
             self.base.items[i] = -(@as(i32, @intCast(i)) - 1);
             self.check.items[i] = -(@as(i32, @intCast(i)) + 1);
@@ -342,8 +342,8 @@ pub const DoubleArray = struct {
             return;
         }
 
-        self.base.shrinkAndFree(len);
-        self.check.shrinkAndFree(len);
+        self.base.shrinkAndFree(self.allocator, len);
+        self.check.shrinkAndFree(self.allocator, len);
     }
 
     /// Set the specified value into `base[s]`, and update linked-list.
@@ -415,7 +415,7 @@ pub const DoubleArray = struct {
 
     /// Returns IDs of the keywords sharing common prefix in the input.
     pub fn commonPrefixSearch(self: Self, input: []const u8) std.mem.Allocator.Error![]i32 {
-        var results = std.ArrayList(i32).init(self.allocator);
+        var results = std.ArrayList(i32){};
         var node: i32 = 0;
         var next: i32 = 0;
         for (input) |char| {
@@ -434,12 +434,12 @@ pub const DoubleArray = struct {
             const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
             if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
                 const id = -self.base.items[@intCast(ahead)];
-                try results.append(id);
+                try results.append(self.allocator, id);
             }
             node = next;
         }
 
-        return try results.toOwnedSlice();
+        return try results.toOwnedSlice(self.allocator);
     }
 
     /// Returns ID of keyword which has the longest common prefix in the input if found.
