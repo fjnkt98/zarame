@@ -169,7 +169,7 @@ pub const DoubleArray = struct {
     /// You should call the `build()` method to build the elements of these arrays.
     /// The values of `keywords` are copied and stored in sorted order.
     ///
-    /// You should deinitialize with `deinit()`.
+    /// You should de-initialize with `deinit()`.
     pub fn init(allocator: std.mem.Allocator, keywords: []const []const u8) DoubleArrayError!Self {
         return try Self.initCapacity(allocator, keywords, 65536);
     }
@@ -178,9 +178,9 @@ pub const DoubleArray = struct {
     /// You should call the `build()` method to build the elements of these arrays.
     /// The values of `keywords` are copied and stored in sorted order.
     ///
-    /// Asserts num is greather than 0.
+    /// Asserts num is greater than 0.
     ///
-    /// You should deinitialize with `deinit()`.
+    /// You should de-initialize with `deinit()`.
     pub fn initCapacity(allocator: std.mem.Allocator, keywords: []const []const u8, num: usize) DoubleArrayError!Self {
         std.debug.assert(num > 0);
 
@@ -203,7 +203,7 @@ pub const DoubleArray = struct {
         base.items[1] = -(@as(i32, @intCast(num)) - 1); // the value of base[1] represents "rightmost available space index (saved as a negative value)"
         check.items[num - 1] = -1; // the value of check[1] is -1. (special value)
 
-        // Sort and copy the word entires.
+        // Sort and copy the word entries.
         for (keywords) |w| {
             const word = try allocator.dupe(u8, w);
             try entries.append(allocator, word);
@@ -240,7 +240,8 @@ pub const DoubleArray = struct {
         defer queue.deinit(self.allocator);
         try queue.enqueue(self.allocator, Node.init(0, 0, branches));
 
-        while (queue.dequeue()) |node| {
+        loop: while (queue.size > 0) {
+            var node = queue.dequeue() orelse break :loop;
             defer node.deinit(self.allocator);
 
             var chars = std.ArrayList(u8).empty;
