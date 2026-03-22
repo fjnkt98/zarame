@@ -45,100 +45,6 @@ test "sort multi-byte strings" {
     try std.testing.expectEqualSlices([]const u8, &expected, &keywords);
 }
 
-fn Queue(comptime T: type) type {
-    return struct {
-        const Self = @This();
-
-        allocator: std.mem.Allocator,
-        buffer: std.ArrayList(T),
-        head: usize,
-        tail: usize,
-        size: usize,
-
-        pub fn init(allocator: std.mem.Allocator) Self {
-            return .{
-                .allocator = allocator,
-                .buffer = std.ArrayList(T).empty,
-                .head = 0,
-                .tail = 0,
-                .size = 0,
-            };
-        }
-
-        pub fn deinit(self: Self) void {
-            self.buffer.deinit(self.allocator);
-        }
-
-        pub fn enqueue(self: *Self, item: T) std.mem.Allocator.Error!void {
-            if (self.size == self.buffer.items.len) {
-                try self.expand();
-            }
-
-            self.buffer.items[self.tail] = item;
-            self.tail = @mod(self.tail + 1, self.buffer.items.len);
-            self.size += 1;
-        }
-
-        pub fn dequeue(self: *Self) ?T {
-            if (self.size == 0) {
-                return null;
-            }
-            const item = self.buffer.items[self.head];
-            self.buffer.items[self.head] = undefined;
-            self.head = @mod(self.head + 1, self.buffer.items.len);
-            self.size -= 1;
-            return item;
-        }
-
-        pub fn empty(self: Self) bool {
-            return self.size == 0;
-        }
-
-        fn expand(self: *Self) std.mem.Allocator.Error!void {
-            var new = std.ArrayList(T).empty;
-            const size = if (self.buffer.items.len == 0) 1 else 2 * self.buffer.items.len;
-            try new.resize(self.allocator, size);
-            for (0..self.buffer.items.len) |i| {
-                new.items[i] = self.buffer.items[@mod(self.head + i, self.buffer.items.len)];
-            }
-            self.buffer.deinit(self.allocator);
-            self.buffer = new;
-            self.head = 0;
-            self.tail = self.size;
-        }
-    };
-}
-
-test "enqueue and dequeue" {
-    const allocator = std.testing.allocator;
-    var queue = Queue(i32).init(allocator);
-    defer queue.deinit();
-
-    try std.testing.expect(queue.empty());
-
-    try queue.enqueue(1);
-    try queue.enqueue(2);
-    try queue.enqueue(3);
-
-    try std.testing.expect(!queue.empty());
-
-    try std.testing.expectEqual(1, queue.dequeue().?);
-    try std.testing.expectEqual(2, queue.dequeue().?);
-    try std.testing.expectEqual(3, queue.dequeue().?);
-    try std.testing.expectEqual(null, queue.dequeue());
-
-    try std.testing.expect(queue.empty());
-}
-
-test "input large number of items into queue" {
-    const allocator = std.testing.allocator;
-    var queue = Queue(i32).init(allocator);
-    defer queue.deinit();
-
-    for (0..100000) |i| {
-        try queue.enqueue(@as(i32, @intCast(i)));
-    }
-}
 
 /// Item of the queue for BFS.
 const Node = struct {
@@ -244,11 +150,11 @@ pub const DoubleArray = struct {
         }
         // deinitialized later on by the node that owns it, so we won't do it here.
 
-        var queue = Queue(Node).init(self.allocator);
-        defer queue.deinit();
-        try queue.enqueue(Node.init(0, 0, branches));
+        var queue: std.Deque(Node) = .empty;
+        defer queue.deinit(self.allocator);
+        try queue.pushBack(self.allocator, Node.init(0, 0, branches));
 
-        while (queue.dequeue()) |node| {
+        while (queue.popFront()) |node| {
             defer node.deinit(self.allocator);
 
             var chars = std.ArrayList(u8).empty;
@@ -286,7 +192,7 @@ pub const DoubleArray = struct {
 
                 if (subtree.get(char)) |edges| {
                     const next = Node.init(t, node.depth + 1, edges);
-                    try queue.enqueue(next);
+                    try queue.pushBack(self.allocator, next);
                 } else {
                     self.base.items[t] = -node.edges.items[0];
                 }
