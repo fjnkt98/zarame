@@ -1,3 +1,6 @@
+const std = @import("std");
+const lib = @import("zarame");
+
 pub fn main() !void {
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 
@@ -6,7 +9,9 @@ pub fn main() !void {
     const stdout = &writer.interface;
 
     try stdout.print("Run `zig build test` to run the tests.\n", .{});
-    try stdout.flush();
+    try stdout.print("2 + 3 = {d}\n", .{lib.add(2, 3)});
+
+    try stdout.flush(); // Don't forget to flush!
 }
 
 test "simple test" {
@@ -31,8 +36,3 @@ test "fuzz example" {
     };
     try std.testing.fuzz(Context{}, Context.testOne, .{});
 }
-
-const std = @import("std");
-
-/// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import("zarame_lib");
