@@ -58,7 +58,7 @@ fn Queue(comptime T: type) type {
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .allocator = allocator,
-                .buffer = std.ArrayList(T){},
+                .buffer = std.ArrayList(T).empty,
                 .head = 0,
                 .tail = 0,
                 .size = 0,
@@ -95,7 +95,7 @@ fn Queue(comptime T: type) type {
         }
 
         fn expand(self: *Self) std.mem.Allocator.Error!void {
-            var new = std.ArrayList(T){};
+            var new = std.ArrayList(T).empty;
             const size = if (self.buffer.items.len == 0) 1 else 2 * self.buffer.items.len;
             try new.resize(self.allocator, size);
             for (0..self.buffer.items.len) |i| {
@@ -196,7 +196,7 @@ pub const DoubleArray = struct {
         errdefer base.deinit(allocator);
         var check = try std.ArrayList(i32).initCapacity(allocator, num);
         errdefer check.deinit(allocator);
-        var entries = std.ArrayList([]const u8){};
+        var entries = std.ArrayList([]const u8).empty;
         errdefer entries.deinit(allocator);
 
         // Initialize base and check arrays as a doubly-linked list to manage available space.
@@ -251,7 +251,7 @@ pub const DoubleArray = struct {
         while (queue.dequeue()) |node| {
             defer node.deinit(self.allocator);
 
-            var chars = std.ArrayList(u8){};
+            var chars = std.ArrayList(u8).empty;
             defer chars.deinit(self.allocator);
             var subtree = std.AutoArrayHashMap(u8, std.ArrayList(i32)).init(self.allocator);
             defer subtree.deinit();
@@ -268,7 +268,7 @@ pub const DoubleArray = struct {
                     if (gop.found_existing) {
                         try gop.value_ptr.*.append(self.allocator, id);
                     } else {
-                        var tree = std.ArrayList(i32){};
+                        var tree = std.ArrayList(i32).empty;
                         try tree.append(self.allocator, id);
                         gop.value_ptr.* = tree;
                     }
@@ -415,7 +415,7 @@ pub const DoubleArray = struct {
 
     /// Returns IDs of the keywords sharing common prefix in the input.
     pub fn commonPrefixSearch(self: Self, input: []const u8) std.mem.Allocator.Error![]i32 {
-        var results = std.ArrayList(i32){};
+        var results = std.ArrayList(i32).empty;
         var node: i32 = 0;
         var next: i32 = 0;
         for (input) |char| {

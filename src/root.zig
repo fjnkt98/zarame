@@ -66,7 +66,7 @@ test "read embedded file" {
     const reader = stream.reader();
 
     var count: i32 = 0;
-    var result = std.ArrayList(u8){};
+    var result = std.ArrayList(u8).empty;
     defer result.deinit(allocator);
 
     while (try reader.readUntilDelimiterOrEofAlloc(allocator, '\n', 1024)) |line| {
