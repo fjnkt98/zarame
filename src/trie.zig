@@ -61,11 +61,11 @@ fn Queue(comptime T: type) type {
             .size = 0,
         };
 
-        pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.buffer.deinit(allocator);
         }
 
-        pub fn append(self: *Self, allocator: std.mem.Allocator, item: T) std.mem.Allocator.Error!void {
+        pub fn enqueue(self: *Self, allocator: std.mem.Allocator, item: T) std.mem.Allocator.Error!void {
             if (self.size == self.buffer.items.len) {
                 try self.expand(allocator);
             }
@@ -75,7 +75,7 @@ fn Queue(comptime T: type) type {
             self.size += 1;
         }
 
-        pub fn popFront(self: *Self) ?T {
+        pub fn dequeue(self: *Self) ?T {
             if (self.size == 0) {
                 return null;
             }
@@ -108,16 +108,16 @@ test "append and popFront" {
 
     try std.testing.expect(queue.size == 0);
 
-    try queue.append(allocator, 1);
-    try queue.append(allocator, 2);
-    try queue.append(allocator, 3);
+    try queue.enqueue(allocator, 1);
+    try queue.enqueue(allocator, 2);
+    try queue.enqueue(allocator, 3);
 
     try std.testing.expect(queue.size != 0);
 
-    try std.testing.expectEqual(1, queue.popFront().?);
-    try std.testing.expectEqual(2, queue.popFront().?);
-    try std.testing.expectEqual(3, queue.popFront().?);
-    try std.testing.expectEqual(null, queue.popFront());
+    try std.testing.expectEqual(1, queue.dequeue().?);
+    try std.testing.expectEqual(2, queue.dequeue().?);
+    try std.testing.expectEqual(3, queue.dequeue().?);
+    try std.testing.expectEqual(null, queue.dequeue());
 
     try std.testing.expect(queue.size == 0);
 }
@@ -128,7 +128,7 @@ test "input large number of items into queue" {
     defer queue.deinit(allocator);
 
     for (0..100000) |i| {
-        try queue.append(allocator, @as(i32, @intCast(i)));
+        try queue.enqueue(allocator, @as(i32, @intCast(i)));
     }
 }
 
@@ -148,7 +148,7 @@ const Node = struct {
         };
     }
 
-    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         self.edges.deinit(allocator);
     }
 };
@@ -234,13 +234,13 @@ pub const DoubleArray = struct {
         for (0.., self.entries.items) |i, _| {
             try branches.append(self.allocator, @intCast(i));
         }
-        // deinitialized later on by the node that owns it, so we won't do it here.
+        // de-initialized later on by the node that owns it, so we won't do it here.
 
         var queue: Queue(Node) = .empty;
         defer queue.deinit(self.allocator);
-        try queue.append(self.allocator, Node.init(0, 0, branches));
+        try queue.enqueue(self.allocator, Node.init(0, 0, branches));
 
-        while (queue.popFront()) |node| {
+        while (queue.dequeue()) |node| {
             defer node.deinit(self.allocator);
 
             var chars = std.ArrayList(u8).empty;
@@ -278,7 +278,7 @@ pub const DoubleArray = struct {
 
                 if (subtree.get(char)) |edges| {
                     const next = Node.init(t, node.depth + 1, edges);
-                    try queue.append(self.allocator, next);
+                    try queue.enqueue(self.allocator, next);
                 } else {
                     self.base.items[t] = -node.edges.items[0];
                 }
@@ -289,7 +289,7 @@ pub const DoubleArray = struct {
     }
 
     /// Release all allocated memory.
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: *Self) void {
         self.base.deinit(self.allocator);
         self.check.deinit(self.allocator);
 
