@@ -3,6 +3,7 @@
 //! and provides the unified Dictionary interface.
 
 const std = @import("std");
+const ArrayList = std.ArrayList;
 
 /// Dictionary entry representing a word in the dictionary.
 /// Each entry corresponds to a morpheme with its linguistic features.
@@ -86,14 +87,14 @@ pub const Dictionary = struct {
     /// The double-array trie for efficient prefix matching
     trie: *const @import("trie.zig").DoubleArray,
     /// All dictionary entries indexed by entry ID
-    entries: std.ArrayList(Entry),
+    entries: ArrayList(Entry),
     /// Connection cost matrix
     connection_costs: ConnectionCosts,
 
     pub fn init(
         allocator: std.mem.Allocator,
         trie: *const @import("trie.zig").DoubleArray,
-        entries: std.ArrayList(Entry),
+        entries: ArrayList(Entry),
         connection_costs: ConnectionCosts,
     ) Self {
         return .{
@@ -168,7 +169,7 @@ test "dictionary basic" {
     try da.build();
 
     // Create entries
-    var entries = std.ArrayList(Entry).init(allocator);
+    var entries = ArrayList(Entry).init(allocator);
     defer entries.deinit();
 
     const features = [_][]const u8{ "名詞", "固有名詞" };
