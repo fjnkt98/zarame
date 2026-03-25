@@ -93,26 +93,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    // Example executable
-    const example_mod = b.createModule(.{
-        .root_source_file = b.path("examples/complete_example.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    example_mod.addImport("zarame", lib_mod);
-
-    const example_exe = b.addExecutable(.{
-        .name = "complete_example",
-        .root_module = example_mod,
-    });
-    b.installArtifact(example_exe);
-
-    const example_run_cmd = b.addRunArtifact(example_exe);
-    example_run_cmd.step.dependOn(b.getInstallStep());
-
-    const example_run_step = b.step("run-example", "Run the complete example");
-    example_run_step.dependOn(&example_run_cmd.step);
-
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
