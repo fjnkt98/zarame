@@ -3,7 +3,6 @@
 //! and provides the unified Dictionary interface.
 
 const std = @import("std");
-const ArrayList = std.ArrayList;
 
 /// Dictionary entry representing a word in the dictionary.
 /// Each entry corresponds to a morpheme with its linguistic features.
@@ -44,7 +43,7 @@ pub const ConnectionCosts = struct {
     costs: []i16,
     /// Size of forward (left) context dimension
     forward_size: usize,
-    /// Size of backward (right) context dimension  
+    /// Size of backward (right) context dimension
     backward_size: usize,
 
     pub fn init(allocator: std.mem.Allocator, forward_size: usize, backward_size: usize) !Self {
@@ -60,7 +59,7 @@ pub const ConnectionCosts = struct {
         };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: *Self) void {
         self.allocator.free(self.costs);
     }
 
@@ -87,14 +86,14 @@ pub const Dictionary = struct {
     /// The double-array trie for efficient prefix matching
     trie: *const @import("trie.zig").DoubleArray,
     /// All dictionary entries indexed by entry ID
-    entries: ArrayList(Entry),
+    entries: std.ArrayList(Entry),
     /// Connection cost matrix
     connection_costs: ConnectionCosts,
 
     pub fn init(
         allocator: std.mem.Allocator,
         trie: *const @import("trie.zig").DoubleArray,
-        entries: ArrayList(Entry),
+        entries: std.ArrayList(Entry),
         connection_costs: ConnectionCosts,
     ) Self {
         return .{
@@ -111,10 +110,10 @@ pub const Dictionary = struct {
     /// - The DoubleArray trie (passed as a const pointer, owned by caller)
     /// - The entry data within entries (surface and features slices are owned by caller)
     /// Caller must manage the lifetime of the trie and entry data separately.
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: *Self) void {
         self.connection_costs.deinit();
         // entries ArrayList is freed, but not the entry data itself
-        self.entries.deinit();
+        self.entries.deinit(self.allocator);
     }
 
     /// Lookup entries that match the given prefix.
@@ -169,18 +168,16 @@ test "dictionary basic" {
     try da.build();
 
     // Create entries
-    var entries = ArrayList(Entry).init(allocator);
-    defer entries.deinit();
+    var entries = std.ArrayList(Entry).empty;
 
     const features = [_][]const u8{ "名詞", "固有名詞" };
-    try entries.append(Entry.init("東京", 1, 1, 3000, &features));
+    try entries.append(allocator, Entry.init("東京", 1, 1, 3000, &features));
 
     // Create connection costs
-    var costs = try ConnectionCosts.init(allocator, 5, 5);
-    defer costs.deinit();
+    const costs = try ConnectionCosts.init(allocator, 5, 5);
 
     // Create dictionary
-    const dict = Dictionary.init(allocator, &da, entries, costs);
+    var dict = Dictionary.init(allocator, &da, entries, costs);
     defer dict.deinit();
 
     // Test lookup
