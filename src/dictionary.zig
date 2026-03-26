@@ -3,6 +3,7 @@
 //! and provides the unified Dictionary interface.
 
 const std = @import("std");
+const trie = @import("trie.zig");
 
 /// Dictionary entry representing a word in the dictionary.
 /// Each entry corresponds to a morpheme with its linguistic features.
@@ -84,7 +85,7 @@ pub const Dictionary = struct {
 
     allocator: std.mem.Allocator,
     /// The double-array trie for efficient prefix matching
-    trie: *const @import("trie.zig").DoubleArray,
+    da: trie.DoubleArray,
     /// All dictionary entries indexed by entry ID
     entries: std.ArrayList(Entry),
     /// Connection cost matrix
@@ -92,13 +93,13 @@ pub const Dictionary = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
-        trie: *const @import("trie.zig").DoubleArray,
+        da: trie.DoubleArray,
         entries: std.ArrayList(Entry),
         connection_costs: ConnectionCosts,
     ) Self {
         return .{
             .allocator = allocator,
-            .trie = trie,
+            .da = da,
             .entries = entries,
             .connection_costs = connection_costs,
         };
@@ -118,7 +119,7 @@ pub const Dictionary = struct {
 
     /// Lookup entries that match the given prefix.
     pub fn lookup(self: Self, text: []const u8) ![]i32 {
-        return try self.trie.commonPrefixSearch(text);
+        return try self.da.commonPrefixSearch(text);
     }
 
     /// Get an entry by its ID.
@@ -163,7 +164,7 @@ test "dictionary basic" {
 
     // Create a simple trie
     const keywords = [_][]const u8{"東京"};
-    var da = try @import("trie.zig").DoubleArray.init(allocator, &keywords);
+    var da = try trie.DoubleArray.init(allocator, &keywords);
     defer da.deinit();
     try da.build();
 
@@ -177,7 +178,7 @@ test "dictionary basic" {
     const costs = try ConnectionCosts.init(allocator, 5, 5);
 
     // Create dictionary
-    var dict = Dictionary.init(allocator, &da, entries, costs);
+    var dict = Dictionary.init(allocator, da, entries, costs);
     defer dict.deinit();
 
     // Test lookup
