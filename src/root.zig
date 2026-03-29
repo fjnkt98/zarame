@@ -6,4 +6,5 @@ const testing = std.testing;
 
 test "test submodules" {
     _ = @import("trie.zig");
+    _ = @import("lattice.zig");
 }
