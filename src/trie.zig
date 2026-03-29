@@ -5,7 +5,7 @@ const std = @import("std");
 const root: usize = 0;
 const terminator: u8 = '\x00';
 
-fn asc(_: void, a: []const u8, b: []const u8) bool {
+fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.lessThan(u8, a, b);
 }
 
@@ -17,7 +17,7 @@ test "sort ascii strings" {
         "cab",
         "a",
     };
-    std.mem.sort([]const u8, &keywords, {}, asc);
+    std.mem.sort([]const u8, &keywords, {}, stringLessThan);
     const expected = [_][]const u8{
         "a",
         "ac",
@@ -35,7 +35,7 @@ test "sort multi-byte strings" {
         "かきくけこ",
         "たちつてと",
     };
-    std.mem.sort([]const u8, &keywords, {}, asc);
+    std.mem.sort([]const u8, &keywords, {}, stringLessThan);
     const expected = [_][]const u8{
         "あいうえお",
         "かきくけこ",
@@ -45,6 +45,7 @@ test "sort multi-byte strings" {
     try std.testing.expectEqualSlices([]const u8, &expected, &keywords);
 }
 
+/// A simple queue implementation for BFS.
 fn Queue(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -65,6 +66,7 @@ fn Queue(comptime T: type) type {
             self.buffer.deinit(allocator);
         }
 
+        // Enqueue an item to the queue. If the buffer is full, it will be expanded by doubling its size.
         pub fn enqueue(self: *Self, allocator: std.mem.Allocator, item: T) std.mem.Allocator.Error!void {
             if (self.size == self.buffer.items.len) {
                 try self.expand(allocator);
@@ -75,6 +77,7 @@ fn Queue(comptime T: type) type {
             self.size += 1;
         }
 
+        // Dequeue an item from the queue. If the queue is empty, it returns null.
         pub fn dequeue(self: *Self) ?T {
             if (self.size == 0) {
                 return null;
@@ -86,6 +89,7 @@ fn Queue(comptime T: type) type {
             return item;
         }
 
+        // Expand the buffer by doubling its size. The items in the buffer are rearranged so that the head is at index 0.
         fn expand(self: *Self, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
             var new = std.ArrayList(T).empty;
             const size = if (self.buffer.items.len == 0) 1 else 2 * self.buffer.items.len;
@@ -101,25 +105,25 @@ fn Queue(comptime T: type) type {
     };
 }
 
-test "append and popFront" {
+test "enqueue and dequeue" {
     const allocator = std.testing.allocator;
     var queue: Queue(i32) = .empty;
     defer queue.deinit(allocator);
 
-    try std.testing.expect(queue.size == 0);
+    try std.testing.expectEqual(queue.size, 0);
 
     try queue.enqueue(allocator, 1);
     try queue.enqueue(allocator, 2);
     try queue.enqueue(allocator, 3);
 
-    try std.testing.expect(queue.size != 0);
+    try std.testing.expectEqual(queue.size, 3);
 
     try std.testing.expectEqual(1, queue.dequeue().?);
     try std.testing.expectEqual(2, queue.dequeue().?);
     try std.testing.expectEqual(3, queue.dequeue().?);
     try std.testing.expectEqual(null, queue.dequeue());
 
-    try std.testing.expect(queue.size == 0);
+    try std.testing.expectEqual(queue.size, 0);
 }
 
 test "input large number of items into queue" {
@@ -130,6 +134,7 @@ test "input large number of items into queue" {
     for (0..100000) |i| {
         try queue.enqueue(allocator, @as(i32, @intCast(i)));
     }
+    try std.testing.expectEqual(queue.size, 100000);
 }
 
 /// Item of the queue for BFS.
@@ -157,10 +162,10 @@ pub const DoubleArrayError = error{
     DuplicatedEntryError,
 } || std.mem.Allocator.Error;
 
+/// Implementation of the Trie data structure.
 pub const DoubleArray = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
     base: std.ArrayList(i32),
     check: std.ArrayList(i32),
     entries: std.ArrayList([]const u8),
@@ -191,7 +196,7 @@ pub const DoubleArray = struct {
         var entries = std.ArrayList([]const u8).empty;
         errdefer entries.deinit(allocator);
 
-        // Initialize base and check arrays as a doubly-linked list to manage available space.
+        // Initialize the base and check arrays as a doubly-linked list to manage available space.
         try base.resize(allocator, num);
         try check.resize(allocator, num);
         base.items[root] = 1; // the value of base[0] is 1. (special value)
@@ -208,7 +213,7 @@ pub const DoubleArray = struct {
             const word = try allocator.dupe(u8, w);
             try entries.append(allocator, word);
         }
-        std.mem.sort([]const u8, entries.items, {}, asc);
+        std.mem.sort([]const u8, entries.items, {}, stringLessThan);
 
         if (entries.items.len > 0) {
             var entry = entries.items[0];
@@ -221,7 +226,6 @@ pub const DoubleArray = struct {
         }
 
         return Self{
-            .allocator = allocator,
             .base = base,
             .check = check,
             .entries = entries,
@@ -229,24 +233,24 @@ pub const DoubleArray = struct {
     }
 
     /// Build double array.
-    pub fn build(self: *Self) std.mem.Allocator.Error!void {
-        var branches = try std.ArrayList(i32).initCapacity(self.allocator, self.entries.items.len);
+    pub fn build(self: *Self, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
+        var branches = try std.ArrayList(i32).initCapacity(allocator, self.entries.items.len);
         for (0.., self.entries.items) |i, _| {
-            try branches.append(self.allocator, @intCast(i));
+            try branches.append(allocator, @intCast(i));
         }
         // de-initialized later on by the node that owns it, so we won't do it here.
 
         var queue: Queue(Node) = .empty;
-        defer queue.deinit(self.allocator);
-        try queue.enqueue(self.allocator, Node.init(0, 0, branches));
+        defer queue.deinit(allocator);
+        try queue.enqueue(allocator, Node.init(0, 0, branches));
 
         loop: while (queue.size > 0) {
             var node = queue.dequeue() orelse break :loop;
-            defer node.deinit(self.allocator);
+            defer node.deinit(allocator);
 
             var chars = std.ArrayList(u8).empty;
-            defer chars.deinit(self.allocator);
-            var subtree = std.AutoArrayHashMap(u8, std.ArrayList(i32)).init(self.allocator);
+            defer chars.deinit(allocator);
+            var subtree = std.AutoArrayHashMap(u8, std.ArrayList(i32)).init(allocator);
             defer subtree.deinit();
 
             for (node.edges.items) |id| {
@@ -254,58 +258,58 @@ pub const DoubleArray = struct {
                 const char = if (node.depth >= word.len) terminator else word[node.depth];
 
                 if (chars.items.len == 0 or chars.getLast() != char) {
-                    try chars.append(self.allocator, char);
+                    try chars.append(allocator, char);
                 }
                 if (char != terminator) {
                     const gop = try subtree.getOrPut(char);
                     if (gop.found_existing) {
-                        try gop.value_ptr.*.append(self.allocator, id);
+                        try gop.value_ptr.*.append(allocator, id);
                     } else {
                         var tree = std.ArrayList(i32).empty;
-                        try tree.append(self.allocator, id);
+                        try tree.append(allocator, id);
                         gop.value_ptr.* = tree;
                     }
                 }
             }
 
-            const x = try self.seek(chars.items);
-            try self.setBase(node.index, x);
+            const x = try self.seek(allocator, chars.items);
+            try self.setBase(allocator, node.index, x);
             for (chars.items) |char| {
                 const t: usize = @intCast(self.base.items[node.index] + @as(i32, char));
                 if (t >= self.base.items.len) {
-                    try self.expand();
+                    try self.expand(allocator);
                 }
-                try self.setCheck(t, @intCast(node.index));
+                try self.setCheck(allocator, t, @intCast(node.index));
 
                 if (subtree.get(char)) |edges| {
                     const next = Node.init(t, node.depth + 1, edges);
-                    try queue.enqueue(self.allocator, next);
+                    try queue.enqueue(allocator, next);
                 } else {
                     self.base.items[t] = -node.edges.items[0];
                 }
             }
         }
 
-        self.shrink();
+        self.shrink(allocator);
     }
 
     /// Release all allocated memory.
-    pub fn deinit(self: *Self) void {
-        self.base.deinit(self.allocator);
-        self.check.deinit(self.allocator);
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        self.base.deinit(allocator);
+        self.check.deinit(allocator);
 
         for (self.entries.items) |e| {
-            self.allocator.free(e);
+            allocator.free(e);
         }
-        self.entries.deinit(self.allocator);
+        self.entries.deinit(allocator);
     }
 
     /// Double the array size.
     /// It also performs reconnection processing of the linked list.
-    fn expand(self: *Self) std.mem.Allocator.Error!void {
+    fn expand(self: *Self, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
         const n = self.base.items.len;
-        try self.base.resize(self.allocator, 2 * n);
-        try self.check.resize(self.allocator, 2 * n);
+        try self.base.resize(allocator, 2 * n);
+        try self.check.resize(allocator, 2 * n);
         for (n..2 * n) |i| {
             self.base.items[i] = -(@as(i32, @intCast(i)) - 1);
             self.check.items[i] = -(@as(i32, @intCast(i)) + 1);
@@ -319,7 +323,7 @@ pub const DoubleArray = struct {
     }
 
     /// Release unused area and reduce array size.
-    fn shrink(self: *Self) void {
+    fn shrink(self: *Self, allocator: std.mem.Allocator) void {
         var len = self.check.items.len;
         var i: usize = 0;
         while (i < self.check.items.len) {
@@ -335,19 +339,19 @@ pub const DoubleArray = struct {
             return;
         }
 
-        self.base.shrinkAndFree(self.allocator, len);
-        self.check.shrinkAndFree(self.allocator, len);
+        self.base.shrinkAndFree(allocator, len);
+        self.check.shrinkAndFree(allocator, len);
     }
 
     /// Set the specified value into `base[s]`, and update linked-list.
-    fn setBase(self: *Self, s: usize, value: i32) std.mem.Allocator.Error!void {
+    fn setBase(self: *Self, allocator: std.mem.Allocator, s: usize, value: i32) std.mem.Allocator.Error!void {
         if (s == root) {
             return;
         }
 
         if (self.check.items[s] < 0) {
             if (self.base.items[s] == self.check.items[s]) {
-                try self.expand();
+                try self.expand(allocator);
             }
 
             const prev = -self.base.items[s];
@@ -362,9 +366,9 @@ pub const DoubleArray = struct {
     }
 
     /// Set the value into `check[s]`, and update linked-list.
-    fn setCheck(self: *Self, s: usize, value: i32) std.mem.Allocator.Error!void {
+    fn setCheck(self: *Self, allocator: std.mem.Allocator, s: usize, value: i32) std.mem.Allocator.Error!void {
         if (self.base.items[s] == self.check.items[s]) {
-            try self.expand();
+            try self.expand(allocator);
         }
 
         const prev = -self.base.items[s];
@@ -380,13 +384,13 @@ pub const DoubleArray = struct {
     }
 
     /// Seek the minimum index value `x` for which all transitions are possible.
-    fn seek(self: *Self, chars: []const u8) std.mem.Allocator.Error!i32 {
+    fn seek(self: *Self, allocator: std.mem.Allocator, chars: []const u8) std.mem.Allocator.Error!i32 {
         var free: i32 = @intCast(root);
         const representative = chars[0];
         var x: i32 = 0;
         seek: while (true) {
             if (free != root and self.check.items[@as(usize, @intCast(free))] == self.check.items[root]) {
-                try self.expand();
+                try self.expand(allocator);
             }
 
             free = -self.check.items[@as(usize, @intCast(free))];
@@ -407,7 +411,7 @@ pub const DoubleArray = struct {
     }
 
     /// Returns IDs of the keywords sharing common prefix in the input.
-    pub fn commonPrefixSearch(self: Self, input: []const u8) std.mem.Allocator.Error![]i32 {
+    pub fn commonPrefixSearch(self: Self, allocator: std.mem.Allocator, input: []const u8) std.mem.Allocator.Error![]i32 {
         var results = std.ArrayList(i32).empty;
         var node: i32 = 0;
         var next: i32 = 0;
@@ -427,15 +431,15 @@ pub const DoubleArray = struct {
             const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
             if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
                 const id = -self.base.items[@intCast(ahead)];
-                try results.append(self.allocator, id);
+                try results.append(allocator, id);
             }
             node = next;
         }
 
-        return try results.toOwnedSlice(self.allocator);
+        return try results.toOwnedSlice(allocator);
     }
 
-    /// Returns ID of keyword which has the longest common prefix in the input if found.
+    /// Returns an ID of the keyword which has the longest common prefix in the input if found.
     pub fn prefixSearch(self: Self, input: []const u8) ?i32 {
         var result: ?i32 = null;
         var node: i32 = 0;
@@ -498,14 +502,14 @@ pub const DoubleArray = struct {
 test "expand double array" {
     const allocator = std.testing.allocator;
     var da = try DoubleArray.initCapacity(allocator, &.{}, 4);
-    defer da.deinit();
+    defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -3, -1, -2 };
     const check1 = [_]i32{ -1, -2, -3, -1 };
     try std.testing.expectEqualSlices(i32, &base1, da.base.items);
     try std.testing.expectEqualSlices(i32, &check1, da.check.items);
 
-    try da.expand();
+    try da.expand(allocator);
 
     const base2 = [_]i32{ 1, -7, -1, -2, -3, -4, -5, -6 };
     const check2 = [_]i32{ -1, -2, -3, -4, -5, -6, -7, -1 };
@@ -516,14 +520,14 @@ test "expand double array" {
 test "shrink double array" {
     const allocator = std.testing.allocator;
     var da = try DoubleArray.initCapacity(allocator, &.{}, 4);
-    defer da.deinit();
+    defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -3, -1, -2 };
     const check1 = [_]i32{ -1, -2, -3, -1 };
     try std.testing.expectEqualSlices(i32, &base1, da.base.items);
     try std.testing.expectEqualSlices(i32, &check1, da.check.items);
 
-    da.shrink();
+    da.shrink(allocator);
 
     try std.testing.expectEqual(0, da.base.items.len);
     try std.testing.expectEqual(0, da.check.items.len);
@@ -540,12 +544,12 @@ test "build and shrink" {
     };
     const cap = 65536;
     var da = try DoubleArray.initCapacity(allocator, &keywords, cap);
-    defer da.deinit();
+    defer da.deinit(allocator);
 
     try std.testing.expectEqual(cap, da.base.items.len);
     try std.testing.expectEqual(cap, da.check.items.len);
 
-    try da.build();
+    try da.build(allocator);
 
     try std.testing.expect(da.base.items.len < cap);
     try std.testing.expect(da.check.items.len < cap);
@@ -554,20 +558,20 @@ test "build and shrink" {
 test "set base" {
     const allocator = std.testing.allocator;
     var da = try DoubleArray.initCapacity(allocator, &.{}, 8);
-    defer da.deinit();
+    defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -7, -1, -2, -3, -4, -5, -6 };
     const check1 = [_]i32{ -1, -2, -3, -4, -5, -6, -7, -1 };
     try std.testing.expectEqualSlices(i32, &base1, da.base.items);
     try std.testing.expectEqualSlices(i32, &check1, da.check.items);
 
-    try da.setBase(0, 4);
+    try da.setBase(allocator, 0, 4);
     try std.testing.expectEqualSlices(i32, &base1, da.base.items);
     try std.testing.expectEqualSlices(i32, &check1, da.check.items);
 
     const base2 = [_]i32{ 1, 4, -7, -2, -3, -4, -5, -6 };
     const check2 = [_]i32{ -2, -2, -3, -4, -5, -6, -7, -2 };
-    try da.setBase(1, 4);
+    try da.setBase(allocator, 1, 4);
     try std.testing.expectEqualSlices(i32, &base2, da.base.items);
     try std.testing.expectEqualSlices(i32, &check2, da.check.items);
 }
@@ -575,14 +579,14 @@ test "set base" {
 test "set check" {
     const allocator = std.testing.allocator;
     var da = try DoubleArray.initCapacity(allocator, &.{}, 8);
-    defer da.deinit();
+    defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -7, -1, -2, -3, -4, -5, -6 };
     const check1 = [_]i32{ -1, -2, -3, -4, -5, -6, -7, -1 };
     try std.testing.expectEqualSlices(i32, &base1, da.base.items);
     try std.testing.expectEqualSlices(i32, &check1, da.check.items);
 
-    try da.setCheck(1, 4);
+    try da.setCheck(allocator, 1, 4);
     const base2 = [_]i32{ 1, -7, -7, -2, -3, -4, -5, -6 };
     const check2 = [_]i32{ -2, 4, -3, -4, -5, -6, -7, -2 };
     try std.testing.expectEqualSlices(i32, &base2, da.base.items);
@@ -592,7 +596,7 @@ test "set check" {
 test "seek" {
     const allocator = std.testing.allocator;
     var da = try DoubleArray.initCapacity(allocator, &.{}, 9);
-    defer da.deinit();
+    defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -8, -1, -2, -3, -4, -5, -6, -7 };
     const check1 = [_]i32{ -1, -2, -3, -4, -5, -6, -7, -8, -1 };
@@ -600,7 +604,7 @@ test "seek" {
     try std.testing.expectEqualSlices(i32, &check1, da.check.items);
 
     const chars = [_]u8{ 1, 2, 3 };
-    const x = try da.seek(&chars);
+    const x = try da.seek(allocator, &chars);
     try std.testing.expectEqual(1, x);
 }
 
@@ -614,10 +618,10 @@ test "common prefix search ascii strings" {
         "cb",
     };
     var da = try DoubleArray.init(allocator, &keywords);
-    defer da.deinit();
-    try da.build();
+    defer da.deinit(allocator);
+    try da.build(allocator);
 
-    const results = try da.commonPrefixSearch("acb");
+    const results = try da.commonPrefixSearch(allocator, "acb");
     defer allocator.free(results);
 
     const expected = [_]i32{ 0, 1 };
@@ -634,8 +638,8 @@ test "prefix search ascii strings" {
         "cb",
     };
     var da = try DoubleArray.init(allocator, &keywords);
-    defer da.deinit();
-    try da.build();
+    defer da.deinit(allocator);
+    try da.build(allocator);
 
     const result = da.prefixSearch("cab");
     try std.testing.expect(result != null);
@@ -654,8 +658,8 @@ test "prefix search multi-byte strings" {
         "電気通信大学電気通信学部",
     };
     var da = try DoubleArray.init(allocator, &keywords);
-    defer da.deinit();
-    try da.build();
+    defer da.deinit(allocator);
+    try da.build(allocator);
 
     const result = da.prefixSearch("電気通信大学大学院電気通信学研究科");
     try std.testing.expectEqual(4, result.?);
@@ -673,8 +677,8 @@ test "prefix search not found" {
         "電気通信大学電気通信学部",
     };
     var da = try DoubleArray.init(allocator, &keywords);
-    defer da.deinit();
-    try da.build();
+    defer da.deinit(allocator);
+    try da.build(allocator);
 
     const result = da.prefixSearch("電通");
     try std.testing.expect(result == null);
@@ -692,8 +696,8 @@ test "search found input keyword" {
         "電気通信大学電気通信学部",
     };
     var da = try DoubleArray.init(allocator, &keywords);
-    defer da.deinit();
-    try da.build();
+    defer da.deinit(allocator);
+    try da.build(allocator);
 
     const result = da.search("電気通信大学院大学");
     try std.testing.expectEqual(5, result.?);
@@ -711,8 +715,8 @@ test "search not found input keyword" {
         "電気通信大学電気通信学部",
     };
     var da = try DoubleArray.init(allocator, &keywords);
-    defer da.deinit();
-    try da.build();
+    defer da.deinit(allocator);
+    try da.build(allocator);
 
     const result = da.search("電通");
     try std.testing.expect(result == null);
