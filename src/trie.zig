@@ -160,6 +160,7 @@ const Node = struct {
 
 pub const DoubleArrayError = error{
     DuplicatedEntryError,
+    UnsortedEntriesError,
 } || std.mem.Allocator.Error;
 
 /// Implementation of the Trie data structure.
@@ -168,33 +169,48 @@ pub const DoubleArray = struct {
 
     base: std.ArrayList(i32),
     check: std.ArrayList(i32),
-    entries: std.ArrayList([]const u8),
+    words: []const []const u8,
 
     /// Initialize DoubleArray with default capacity size. The elements of these arrays are not built at initialization.
     /// You should call the `build()` method to build the elements of these arrays.
-    /// The values of `keywords` are copied and stored in sorted order.
+    ///
+    /// The values of `words` must be sorted, and must not contain duplicated entries.
     ///
     /// You should de-initialize with `deinit()`.
-    pub fn init(allocator: std.mem.Allocator, keywords: []const []const u8) DoubleArrayError!Self {
-        return try Self.initCapacity(allocator, keywords, 65536);
+    pub fn init(allocator: std.mem.Allocator, words: []const []const u8) DoubleArrayError!Self {
+        return try Self.initCapacity(allocator, words, 65536);
     }
 
     /// Initialize DoubleArray with capacity size. The elements of these arrays are not built at initialization.
     /// You should call the `build()` method to build the elements of these arrays.
-    /// The values of `keywords` are copied and stored in sorted order.
     ///
-    /// Asserts num is greater than 0.
+    /// The values of `words` must be sorted, and must not contain duplicated entries.
+    ///
+    /// `num` must be greater than 0.
     ///
     /// You should de-initialize with `deinit()`.
-    pub fn initCapacity(allocator: std.mem.Allocator, keywords: []const []const u8, num: usize) DoubleArrayError!Self {
+    pub fn initCapacity(allocator: std.mem.Allocator, words: []const []const u8, num: usize) DoubleArrayError!Self {
         std.debug.assert(num > 0);
+
+        if (!std.sort.isSorted([]const u8, words, {}, stringLessThan)) {
+            return DoubleArrayError.UnsortedEntriesError;
+        }
+
+        // Duplication check.
+        if (words.len > 0) {
+            var prev = words[0];
+            for (words[1..]) |w| {
+                if (std.mem.eql(u8, prev, w)) {
+                    return DoubleArrayError.DuplicatedEntryError;
+                }
+                prev = w;
+            }
+        }
 
         var base = try std.ArrayList(i32).initCapacity(allocator, num);
         errdefer base.deinit(allocator);
         var check = try std.ArrayList(i32).initCapacity(allocator, num);
         errdefer check.deinit(allocator);
-        var entries = std.ArrayList([]const u8).empty;
-        errdefer entries.deinit(allocator);
 
         // Initialize the base and check arrays as a doubly-linked list to manage available space.
         try base.resize(allocator, num);
@@ -208,42 +224,26 @@ pub const DoubleArray = struct {
         base.items[1] = -(@as(i32, @intCast(num)) - 1); // the value of base[1] represents "rightmost available space index (saved as a negative value)"
         check.items[num - 1] = -1; // the value of check[1] is -1. (special value)
 
-        // Sort and copy the word entries.
-        for (keywords) |w| {
-            const word = try allocator.dupe(u8, w);
-            try entries.append(allocator, word);
-        }
-        std.mem.sort([]const u8, entries.items, {}, stringLessThan);
-
-        if (entries.items.len > 0) {
-            var entry = entries.items[0];
-            for (entries.items[1..]) |e| {
-                if (std.mem.eql(u8, entry, e)) {
-                    return DoubleArrayError.DuplicatedEntryError;
-                }
-                entry = e;
-            }
-        }
-
         return Self{
             .base = base,
             .check = check,
-            .entries = entries,
+            .words = words,
         };
     }
 
-    /// Build double array.
+    /// Build the double array.
     pub fn build(self: *Self, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
-        var branches = try std.ArrayList(i32).initCapacity(allocator, self.entries.items.len);
-        for (0.., self.entries.items) |i, _| {
+        var branches = try std.ArrayList(i32).initCapacity(allocator, self.words.len);
+        for (0.., self.words) |i, _| {
             try branches.append(allocator, @intCast(i));
         }
-        // de-initialized later on by the node that owns it, so we won't do it here.
+        // branches will be de-initialized later on by the node that owns it, so we won't do it here.
 
         var queue: Queue(Node) = .empty;
         defer queue.deinit(allocator);
         try queue.enqueue(allocator, Node.init(0, 0, branches));
 
+        // Start BFS to build the double array.
         loop: while (queue.size > 0) {
             var node = queue.dequeue() orelse break :loop;
             defer node.deinit(allocator);
@@ -254,7 +254,7 @@ pub const DoubleArray = struct {
             defer subtree.deinit();
 
             for (node.edges.items) |id| {
-                const word = self.entries.items[@intCast(id)];
+                const word = self.words[@intCast(id)];
                 const char = if (node.depth >= word.len) terminator else word[node.depth];
 
                 if (chars.items.len == 0 or chars.getLast() != char) {
@@ -297,11 +297,6 @@ pub const DoubleArray = struct {
     pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         self.base.deinit(allocator);
         self.check.deinit(allocator);
-
-        for (self.entries.items) |e| {
-            allocator.free(e);
-        }
-        self.entries.deinit(allocator);
     }
 
     /// Double the array size.
@@ -410,9 +405,11 @@ pub const DoubleArray = struct {
         return x;
     }
 
-    /// Returns IDs of the keywords sharing common prefix in the input.
-    pub fn commonPrefixSearch(self: Self, allocator: std.mem.Allocator, input: []const u8) std.mem.Allocator.Error![]i32 {
-        var results = std.ArrayList(i32).empty;
+    /// Returns IDs of the words sharing common prefix in the input.
+    ///
+    /// You can get the words by using the returned IDs as indices of the `words`.
+    pub fn commonPrefixSearch(self: Self, allocator: std.mem.Allocator, input: []const u8) std.mem.Allocator.Error![]usize {
+        var results = std.ArrayList(usize).empty;
         var node: i32 = 0;
         var next: i32 = 0;
         for (input) |char| {
@@ -431,7 +428,7 @@ pub const DoubleArray = struct {
             const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
             if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
                 const id = -self.base.items[@intCast(ahead)];
-                try results.append(allocator, id);
+                try results.append(allocator, @as(usize, @intCast(id)));
             }
             node = next;
         }
@@ -439,9 +436,11 @@ pub const DoubleArray = struct {
         return try results.toOwnedSlice(allocator);
     }
 
-    /// Returns an ID of the keyword which has the longest common prefix in the input if found.
-    pub fn prefixSearch(self: Self, input: []const u8) ?i32 {
-        var result: ?i32 = null;
+    /// Returns an ID of the word which has the longest common prefix in the input if found.
+    ///
+    /// You can get the word by using the returned ID as an index of the `words`.
+    pub fn prefixSearch(self: Self, input: []const u8) ?usize {
+        var result: ?usize = null;
         var node: i32 = 0;
         var next: i32 = 0;
         for (input) |char| {
@@ -459,7 +458,7 @@ pub const DoubleArray = struct {
 
             const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
             if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
-                result = -self.base.items[@intCast(ahead)];
+                result = @as(usize, @intCast(-self.base.items[@intCast(ahead)]));
             }
             node = next;
         }
@@ -467,8 +466,10 @@ pub const DoubleArray = struct {
         return result;
     }
 
-    /// Returns ID of the keyword if found.
-    pub fn search(self: Self, input: []const u8) ?i32 {
+    /// Returns ID of the word if found.
+    ///
+    /// You can get the word by using the returned ID as an index of the `words`.
+    pub fn search(self: Self, input: []const u8) ?usize {
         if (input.len == 0) {
             return null;
         }
@@ -493,7 +494,7 @@ pub const DoubleArray = struct {
 
         const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
         if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
-            return -self.base.items[@intCast(ahead)];
+            return @as(usize, @intCast(-self.base.items[@intCast(ahead)]));
         }
         return null;
     }
@@ -535,7 +536,7 @@ test "shrink double array" {
 
 test "build and shrink" {
     const allocator = std.testing.allocator;
-    const keywords = [_][]const u8{
+    const words = [_][]const u8{
         "a",
         "ac",
         "b",
@@ -543,7 +544,7 @@ test "build and shrink" {
         "cb",
     };
     const cap = 65536;
-    var da = try DoubleArray.initCapacity(allocator, &keywords, cap);
+    var da = try DoubleArray.initCapacity(allocator, &words, cap);
     defer da.deinit(allocator);
 
     try std.testing.expectEqual(cap, da.base.items.len);
@@ -610,34 +611,34 @@ test "seek" {
 
 test "common prefix search ascii strings" {
     const allocator = std.testing.allocator;
-    const keywords = [_][]const u8{
+    const words = [_][]const u8{
         "a",
         "ac",
         "b",
         "cab",
         "cb",
     };
-    var da = try DoubleArray.init(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &words);
     defer da.deinit(allocator);
     try da.build(allocator);
 
     const results = try da.commonPrefixSearch(allocator, "acb");
     defer allocator.free(results);
 
-    const expected = [_]i32{ 0, 1 };
-    try std.testing.expectEqualSlices(i32, &expected, results);
+    const expected = [_]usize{ 0, 1 };
+    try std.testing.expectEqualSlices(usize, &expected, results);
 }
 
 test "prefix search ascii strings" {
     const allocator = std.testing.allocator;
-    const keywords = [_][]const u8{
+    const words = [_][]const u8{
         "a",
         "ac",
         "b",
         "cab",
         "cb",
     };
-    var da = try DoubleArray.init(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &words);
     defer da.deinit(allocator);
     try da.build(allocator);
 
@@ -648,7 +649,7 @@ test "prefix search ascii strings" {
 
 test "prefix search multi-byte strings" {
     const allocator = std.testing.allocator;
-    const keywords = [_][]const u8{
+    const words = [_][]const u8{
         "電気",
         "電気通信",
         "電気通信大学",
@@ -657,7 +658,7 @@ test "prefix search multi-byte strings" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    var da = try DoubleArray.init(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &words);
     defer da.deinit(allocator);
     try da.build(allocator);
 
@@ -667,7 +668,7 @@ test "prefix search multi-byte strings" {
 
 test "prefix search not found" {
     const allocator = std.testing.allocator;
-    const keywords = [_][]const u8{
+    const words = [_][]const u8{
         "電気",
         "電気通信",
         "電気通信大学",
@@ -676,7 +677,7 @@ test "prefix search not found" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    var da = try DoubleArray.init(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &words);
     defer da.deinit(allocator);
     try da.build(allocator);
 
@@ -686,7 +687,7 @@ test "prefix search not found" {
 
 test "search found input keyword" {
     const allocator = std.testing.allocator;
-    const keywords = [_][]const u8{
+    const words = [_][]const u8{
         "電気",
         "電気通信",
         "電気通信大学",
@@ -695,7 +696,7 @@ test "search found input keyword" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    var da = try DoubleArray.init(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &words);
     defer da.deinit(allocator);
     try da.build(allocator);
 
@@ -705,7 +706,7 @@ test "search found input keyword" {
 
 test "search not found input keyword" {
     const allocator = std.testing.allocator;
-    const keywords = [_][]const u8{
+    const words = [_][]const u8{
         "電気",
         "電気通信",
         "電気通信大学",
@@ -714,10 +715,30 @@ test "search not found input keyword" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    var da = try DoubleArray.init(allocator, &keywords);
+    var da = try DoubleArray.init(allocator, &words);
     defer da.deinit(allocator);
     try da.build(allocator);
 
     const result = da.search("電通");
     try std.testing.expect(result == null);
+}
+
+test "return an error for unsorted words" {
+    const allocator = std.testing.allocator;
+    const words = [_][]const u8{
+        "b",
+        "a",
+    };
+    const result = DoubleArray.init(allocator, &words);
+    try std.testing.expect(result == DoubleArrayError.UnsortedEntriesError);
+}
+
+test "return an error for words contains duplication" {
+    const allocator = std.testing.allocator;
+    const words = [_][]const u8{
+        "a",
+        "a",
+    };
+    const result = DoubleArray.init(allocator, &words);
+    try std.testing.expect(result == DoubleArrayError.DuplicatedEntryError);
 }
