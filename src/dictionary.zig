@@ -8,9 +8,17 @@ pub const Dictionary = struct {
 };
 
 pub const Morph = struct {
+    const Self = @This();
+
     left_id: usize,
     right_id: usize,
     cost: i16,
+
+    pub const empty = Self{
+        .left_id = 0,
+        .right_id = 0,
+        .cost = 0,
+    };
 };
 
 pub const Matrix = struct {
