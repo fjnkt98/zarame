@@ -143,9 +143,9 @@ const Node = struct {
 
     index: usize,
     depth: usize,
-    edges: std.ArrayList(i32),
+    edges: std.ArrayList(usize),
 
-    pub fn init(index: usize, depth: usize, edges: std.ArrayList(i32)) Self {
+    pub fn init(index: usize, depth: usize, edges: std.ArrayList(usize)) Self {
         return .{
             .index = index,
             .depth = depth,
@@ -158,88 +158,63 @@ const Node = struct {
     }
 };
 
-pub const DoubleArrayError = error{
-    DuplicatedEntryError,
-    UnsortedEntriesError,
-} || std.mem.Allocator.Error;
-
 /// Implementation of the Trie data structure.
 pub const DoubleArray = struct {
     const Self = @This();
 
     base: std.ArrayList(i32),
     check: std.ArrayList(i32),
-    words: []const []const u8,
 
-    /// Initialize DoubleArray with default capacity size. The elements of these arrays are not built at initialization.
-    /// You should call the `build()` method to build the elements of these arrays.
+    /// Initialize DoubleArray with capacity size.
     ///
-    /// The values of `words` must be sorted, and must not contain duplicated entries.
+    /// The values of `words` must be sorted, and must have the same length as `ids`.
     ///
     /// You should de-initialize with `deinit()`.
-    pub fn init(allocator: std.mem.Allocator, words: []const []const u8) DoubleArrayError!Self {
-        return try Self.initCapacity(allocator, words, 65536);
-    }
-
-    /// Initialize DoubleArray with capacity size. The elements of these arrays are not built at initialization.
-    /// You should call the `build()` method to build the elements of these arrays.
-    ///
-    /// The values of `words` must be sorted, and must not contain duplicated entries.
-    ///
-    /// `num` must be greater than 0.
-    ///
-    /// You should de-initialize with `deinit()`.
-    pub fn initCapacity(allocator: std.mem.Allocator, words: []const []const u8, num: usize) DoubleArrayError!Self {
-        std.debug.assert(num > 0);
-
+    pub fn init(allocator: std.mem.Allocator, words: []const []const u8, ids: []const usize, cap: usize) !Self {
+        if (words.len != ids.len) {
+            return error.UnmatchedLengthError;
+        }
         if (!std.sort.isSorted([]const u8, words, {}, stringLessThan)) {
-            return DoubleArrayError.UnsortedEntriesError;
+            return error.UnsortedWordsError;
         }
 
-        // Duplication check.
-        if (words.len > 0) {
-            var prev = words[0];
-            for (words[1..]) |w| {
-                if (std.mem.eql(u8, prev, w)) {
-                    return DoubleArrayError.DuplicatedEntryError;
-                }
-                prev = w;
-            }
-        }
-
-        var base = try std.ArrayList(i32).initCapacity(allocator, num);
+        var base = try std.ArrayList(i32).initCapacity(allocator, cap);
         errdefer base.deinit(allocator);
-        var check = try std.ArrayList(i32).initCapacity(allocator, num);
+        var check = try std.ArrayList(i32).initCapacity(allocator, cap);
         errdefer check.deinit(allocator);
 
         // Initialize the base and check arrays as a doubly-linked list to manage available space.
-        try base.resize(allocator, num);
-        try check.resize(allocator, num);
+        try base.resize(allocator, cap);
+        try check.resize(allocator, cap);
         base.items[root] = 1; // the value of base[0] is 1. (special value)
         check.items[root] = -1; // the value of check[0] represents "leftmost available space index (saved as a negative value)"
-        for (1..num) |i| {
+        for (1..cap) |i| {
             base.items[i] = -(@as(i32, @intCast(i)) - 1); // the value of base[i] represents "previous available space index (saved as a negative value)"
             check.items[i] = -(@as(i32, @intCast(i)) + 1); // the value of check[i] represents "next available space index (saved as a negative value)"
         }
-        base.items[1] = -(@as(i32, @intCast(num)) - 1); // the value of base[1] represents "rightmost available space index (saved as a negative value)"
-        check.items[num - 1] = -1; // the value of check[1] is -1. (special value)
+        base.items[1] = -(@as(i32, @intCast(cap)) - 1); // the value of base[1] represents "rightmost available space index (saved as a negative value)"
+        check.items[cap - 1] = -1; // the value of check[cap - 1] is -1. (special value)
 
-        return Self{
+        var self = Self{
             .base = base,
             .check = check,
-            .words = words,
         };
+        if (words.len > 0) {
+            try self.build(allocator, words, ids);
+        }
+
+        return self;
     }
 
     /// Build the double array.
-    pub fn build(self: *Self, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
-        var branches = try std.ArrayList(i32).initCapacity(allocator, self.words.len);
-        for (0.., self.words) |i, _| {
-            try branches.append(allocator, @intCast(i));
+    fn build(self: *Self, allocator: std.mem.Allocator, words: []const []const u8, ids: []const usize) std.mem.Allocator.Error!void {
+        var branches = try std.ArrayList(usize).initCapacity(allocator, words.len);
+        for (0.., words) |i, _| {
+            try branches.append(allocator, i);
         }
         // branches will be de-initialized later on by the node that owns it, so we won't do it here.
 
-        var queue: Queue(Node) = .empty;
+        var queue = Queue(Node).empty;
         defer queue.deinit(allocator);
         try queue.enqueue(allocator, Node.init(0, 0, branches));
 
@@ -250,11 +225,11 @@ pub const DoubleArray = struct {
 
             var chars = std.ArrayList(u8).empty;
             defer chars.deinit(allocator);
-            var subtree = std.AutoArrayHashMap(u8, std.ArrayList(i32)).init(allocator);
+            var subtree = std.AutoArrayHashMap(u8, std.ArrayList(usize)).init(allocator);
             defer subtree.deinit();
 
-            for (node.edges.items) |id| {
-                const word = self.words[@intCast(id)];
+            for (node.edges.items) |i| {
+                const word = words[i];
                 const char = if (node.depth >= word.len) terminator else word[node.depth];
 
                 if (chars.items.len == 0 or chars.getLast() != char) {
@@ -263,10 +238,10 @@ pub const DoubleArray = struct {
                 if (char != terminator) {
                     const gop = try subtree.getOrPut(char);
                     if (gop.found_existing) {
-                        try gop.value_ptr.*.append(allocator, id);
+                        try gop.value_ptr.*.append(allocator, i);
                     } else {
-                        var tree = std.ArrayList(i32).empty;
-                        try tree.append(allocator, id);
+                        var tree = std.ArrayList(usize).empty;
+                        try tree.append(allocator, i);
                         gop.value_ptr.* = tree;
                     }
                 }
@@ -285,7 +260,8 @@ pub const DoubleArray = struct {
                     const next = Node.init(t, node.depth + 1, edges);
                     try queue.enqueue(allocator, next);
                 } else {
-                    self.base.items[t] = -node.edges.items[0];
+                    // register the word's id
+                    self.base.items[t] = -@as(i32, @intCast(ids[node.edges.items[0]]));
                 }
             }
         }
@@ -437,8 +413,6 @@ pub const DoubleArray = struct {
     }
 
     /// Returns an ID of the word which has the longest common prefix in the input if found.
-    ///
-    /// You can get the word by using the returned ID as an index of the `words`.
     pub fn prefixSearch(self: Self, input: []const u8) ?usize {
         var result: ?usize = null;
         var node: i32 = 0;
@@ -467,8 +441,6 @@ pub const DoubleArray = struct {
     }
 
     /// Returns ID of the word if found.
-    ///
-    /// You can get the word by using the returned ID as an index of the `words`.
     pub fn search(self: Self, input: []const u8) ?usize {
         if (input.len == 0) {
             return null;
@@ -502,7 +474,7 @@ pub const DoubleArray = struct {
 
 test "expand double array" {
     const allocator = std.testing.allocator;
-    var da = try DoubleArray.initCapacity(allocator, &.{}, 4);
+    var da = try DoubleArray.init(allocator, &.{}, &.{}, 4);
     defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -3, -1, -2 };
@@ -520,7 +492,7 @@ test "expand double array" {
 
 test "shrink double array" {
     const allocator = std.testing.allocator;
-    var da = try DoubleArray.initCapacity(allocator, &.{}, 4);
+    var da = try DoubleArray.init(allocator, &.{}, &.{}, 4);
     defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -3, -1, -2 };
@@ -534,7 +506,7 @@ test "shrink double array" {
     try std.testing.expectEqual(0, da.check.items.len);
 }
 
-test "build and shrink" {
+test "build" {
     const allocator = std.testing.allocator;
     const words = [_][]const u8{
         "a",
@@ -544,13 +516,8 @@ test "build and shrink" {
         "cb",
     };
     const cap = 65536;
-    var da = try DoubleArray.initCapacity(allocator, &words, cap);
+    var da = try DoubleArray.init(allocator, &words, &.{ 0, 1, 2, 3, 4 }, cap);
     defer da.deinit(allocator);
-
-    try std.testing.expectEqual(cap, da.base.items.len);
-    try std.testing.expectEqual(cap, da.check.items.len);
-
-    try da.build(allocator);
 
     try std.testing.expect(da.base.items.len < cap);
     try std.testing.expect(da.check.items.len < cap);
@@ -558,7 +525,7 @@ test "build and shrink" {
 
 test "set base" {
     const allocator = std.testing.allocator;
-    var da = try DoubleArray.initCapacity(allocator, &.{}, 8);
+    var da = try DoubleArray.init(allocator, &.{}, &.{}, 8);
     defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -7, -1, -2, -3, -4, -5, -6 };
@@ -579,7 +546,7 @@ test "set base" {
 
 test "set check" {
     const allocator = std.testing.allocator;
-    var da = try DoubleArray.initCapacity(allocator, &.{}, 8);
+    var da = try DoubleArray.init(allocator, &.{}, &.{}, 8);
     defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -7, -1, -2, -3, -4, -5, -6 };
@@ -596,7 +563,7 @@ test "set check" {
 
 test "seek" {
     const allocator = std.testing.allocator;
-    var da = try DoubleArray.initCapacity(allocator, &.{}, 9);
+    var da = try DoubleArray.init(allocator, &.{}, &.{}, 9);
     defer da.deinit(allocator);
 
     const base1 = [_]i32{ 1, -8, -1, -2, -3, -4, -5, -6, -7 };
@@ -618,15 +585,56 @@ test "common prefix search ascii strings" {
         "cab",
         "cb",
     };
-    var da = try DoubleArray.init(allocator, &words);
+    var da = try DoubleArray.init(allocator, &words, &.{ 0, 1, 2, 3, 4 }, 8);
     defer da.deinit(allocator);
-    try da.build(allocator);
 
-    const results = try da.commonPrefixSearch(allocator, "acb");
-    defer allocator.free(results);
+    const actual = try da.commonPrefixSearch(allocator, "acb");
+    defer allocator.free(actual);
 
     const expected = [_]usize{ 0, 1 };
-    try std.testing.expectEqualSlices(usize, &expected, results);
+    try std.testing.expectEqualSlices(usize, &expected, actual);
+}
+
+test "common prefix search multi-byte strings" {
+    const allocator = std.testing.allocator;
+    const words = [_][]const u8{
+        "電気",
+        "電気通信",
+        "電気通信大学",
+        "電気通信大学大学院",
+        "電気通信大学大学院電気通信学研究科",
+        "電気通信大学院大学",
+        "電気通信大学電気通信学部",
+    };
+    var da = try DoubleArray.init(allocator, &words, &.{ 0, 1, 2, 3, 4, 5, 6 }, 8);
+    defer da.deinit(allocator);
+
+    const actual = try da.commonPrefixSearch(allocator, "電気通信大学院大学");
+    defer allocator.free(actual);
+
+    const expected = [_]usize{ 0, 1, 2, 5 };
+    try std.testing.expectEqualSlices(usize, &expected, actual);
+}
+
+test "common prefix search multi-byte strings with ids" {
+    const allocator = std.testing.allocator;
+    const words = [_][]const u8{
+        "電気",
+        "電気通信",
+        "電気通信大学",
+        "電気通信大学大学院",
+        "電気通信大学大学院電気通信学研究科",
+        "電気通信大学院大学",
+        "電気通信大学電気通信学部",
+    };
+    var da = try DoubleArray.init(allocator, &words, &.{ 1, 3, 5, 7, 9, 11, 13 }, 8);
+    defer da.deinit(allocator);
+
+    const actual = try da.commonPrefixSearch(allocator, "電気通信大学院大学");
+    defer allocator.free(actual);
+
+    const expected = [_]usize{ 1, 3, 5, 11 };
+    try std.testing.expectEqualSlices(usize, &expected, actual);
 }
 
 test "prefix search ascii strings" {
@@ -638,9 +646,8 @@ test "prefix search ascii strings" {
         "cab",
         "cb",
     };
-    var da = try DoubleArray.init(allocator, &words);
+    var da = try DoubleArray.init(allocator, &words, &.{ 0, 1, 2, 3, 4 }, 8);
     defer da.deinit(allocator);
-    try da.build(allocator);
 
     const result = da.prefixSearch("cab");
     try std.testing.expect(result != null);
@@ -658,9 +665,8 @@ test "prefix search multi-byte strings" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    var da = try DoubleArray.init(allocator, &words);
+    var da = try DoubleArray.init(allocator, &words, &.{ 0, 1, 2, 3, 4, 5, 6 }, 8);
     defer da.deinit(allocator);
-    try da.build(allocator);
 
     const result = da.prefixSearch("電気通信大学大学院電気通信学研究科");
     try std.testing.expectEqual(4, result.?);
@@ -677,9 +683,8 @@ test "prefix search not found" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    var da = try DoubleArray.init(allocator, &words);
+    var da = try DoubleArray.init(allocator, &words, &.{ 0, 1, 2, 3, 4, 5, 6 }, 8);
     defer da.deinit(allocator);
-    try da.build(allocator);
 
     const result = da.prefixSearch("電通");
     try std.testing.expect(result == null);
@@ -696,9 +701,8 @@ test "search found input keyword" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    var da = try DoubleArray.init(allocator, &words);
+    var da = try DoubleArray.init(allocator, &words, &.{ 0, 1, 2, 3, 4, 5, 6 }, 8);
     defer da.deinit(allocator);
-    try da.build(allocator);
 
     const result = da.search("電気通信大学院大学");
     try std.testing.expectEqual(5, result.?);
@@ -715,9 +719,8 @@ test "search not found input keyword" {
         "電気通信大学院大学",
         "電気通信大学電気通信学部",
     };
-    var da = try DoubleArray.init(allocator, &words);
+    var da = try DoubleArray.init(allocator, &words, &.{ 0, 1, 2, 3, 4, 5, 6 }, 8);
     defer da.deinit(allocator);
-    try da.build(allocator);
 
     const result = da.search("電通");
     try std.testing.expect(result == null);
@@ -729,16 +732,6 @@ test "return an error for unsorted words" {
         "b",
         "a",
     };
-    const result = DoubleArray.init(allocator, &words);
-    try std.testing.expect(result == DoubleArrayError.UnsortedEntriesError);
-}
-
-test "return an error for words contains duplication" {
-    const allocator = std.testing.allocator;
-    const words = [_][]const u8{
-        "a",
-        "a",
-    };
-    const result = DoubleArray.init(allocator, &words);
-    try std.testing.expect(result == DoubleArrayError.DuplicatedEntryError);
+    const result = DoubleArray.init(allocator, &words, &.{ 0, 1 }, 8);
+    try std.testing.expect(result == error.UnsortedWordsError);
 }
