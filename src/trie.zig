@@ -5,7 +5,7 @@ const std = @import("std");
 const root: usize = 0;
 const terminator: u8 = '\x00';
 
-fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
+pub fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.lessThan(u8, a, b);
 }
 
@@ -167,7 +167,7 @@ pub const DoubleArray = struct {
 
     /// Initialize DoubleArray with capacity size.
     ///
-    /// The values of `words` must be sorted, and must have the same length as `ids`.
+    /// The values of `words` must be sorted and must not have duplicates, and must have the same length as `ids`.
     ///
     /// You should de-initialize with `deinit()`.
     pub fn init(allocator: std.mem.Allocator, words: []const []const u8, ids: []const usize, cap: usize) !Self {
@@ -176,6 +176,13 @@ pub const DoubleArray = struct {
         }
         if (!std.sort.isSorted([]const u8, words, {}, stringLessThan)) {
             return error.UnsortedWordsError;
+        }
+        var prev: []const u8 = "";
+        for (words) |word| {
+            if (std.mem.eql(u8, word, prev)) {
+                return error.DuplicatedWordsError;
+            }
+            prev = word;
         }
 
         var base = try std.ArrayList(i32).initCapacity(allocator, cap);
@@ -381,14 +388,12 @@ pub const DoubleArray = struct {
         return x;
     }
 
-    /// Returns IDs of the words sharing common prefix in the input.
-    ///
-    /// You can get the words by using the returned IDs as indices of the `words`.
-    pub fn commonPrefixSearch(self: Self, allocator: std.mem.Allocator, input: []const u8) std.mem.Allocator.Error![]usize {
-        var results = std.ArrayList(usize).empty;
+    /// Returns IDs of the words sharing common prefix in the input and its byte length.
+    pub fn commonPrefixSearch(self: Self, allocator: std.mem.Allocator, input: []const u8) std.mem.Allocator.Error![]SearchResult {
+        var results = std.ArrayList(SearchResult).empty;
         var node: i32 = 0;
         var next: i32 = 0;
-        for (input) |char| {
+        for (0.., input) |i, char| {
             if (char == terminator) {
                 break;
             }
@@ -403,8 +408,11 @@ pub const DoubleArray = struct {
 
             const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
             if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
-                const id = -self.base.items[@intCast(ahead)];
-                try results.append(allocator, @as(usize, @intCast(id)));
+                const id = @as(usize, @intCast(-self.base.items[@intCast(ahead)]));
+                try results.append(allocator, .{
+                    .id = id,
+                    .length = i + 1,
+                });
             }
             node = next;
         }
@@ -412,12 +420,12 @@ pub const DoubleArray = struct {
         return try results.toOwnedSlice(allocator);
     }
 
-    /// Returns an ID of the word which has the longest common prefix in the input if found.
-    pub fn prefixSearch(self: Self, input: []const u8) ?usize {
-        var result: ?usize = null;
+    /// Returns ID of the word which has the longest common prefix in the input if found.
+    pub fn prefixSearch(self: Self, input: []const u8) ?SearchResult {
+        var result: ?SearchResult = null;
         var node: i32 = 0;
         var next: i32 = 0;
-        for (input) |char| {
+        for (0.., input) |i, char| {
             if (char == terminator) {
                 break;
             }
@@ -432,7 +440,11 @@ pub const DoubleArray = struct {
 
             const ahead: i32 = self.base.items[@intCast(next)] + @as(i32, @intCast(terminator));
             if (ahead < self.base.items.len and self.check.items[@intCast(ahead)] == next and self.base.items[@intCast(ahead)] <= 0) {
-                result = @as(usize, @intCast(-self.base.items[@intCast(ahead)]));
+                const id = @as(usize, @intCast(-self.base.items[@intCast(ahead)]));
+                result = .{
+                    .id = id,
+                    .length = i + 1,
+                };
             }
             node = next;
         }
@@ -470,6 +482,11 @@ pub const DoubleArray = struct {
         }
         return null;
     }
+};
+
+pub const SearchResult = struct {
+    id: usize,
+    length: usize,
 };
 
 test "expand double array" {
@@ -591,8 +608,11 @@ test "common prefix search ascii strings" {
     const actual = try da.commonPrefixSearch(allocator, "acb");
     defer allocator.free(actual);
 
-    const expected = [_]usize{ 0, 1 };
-    try std.testing.expectEqualSlices(usize, &expected, actual);
+    const expected = [_]SearchResult{
+        .{ .id = 0, .length = 1 },
+        .{ .id = 1, .length = 2 },
+    };
+    try std.testing.expectEqualSlices(SearchResult, &expected, actual);
 }
 
 test "common prefix search multi-byte strings" {
@@ -612,8 +632,13 @@ test "common prefix search multi-byte strings" {
     const actual = try da.commonPrefixSearch(allocator, "電気通信大学院大学");
     defer allocator.free(actual);
 
-    const expected = [_]usize{ 0, 1, 2, 5 };
-    try std.testing.expectEqualSlices(usize, &expected, actual);
+    const expected = [_]SearchResult{
+        .{ .id = 0, .length = 6 },
+        .{ .id = 1, .length = 12 },
+        .{ .id = 2, .length = 18 },
+        .{ .id = 5, .length = 27 },
+    };
+    try std.testing.expectEqualSlices(SearchResult, &expected, actual);
 }
 
 test "common prefix search multi-byte strings with ids" {
@@ -633,8 +658,13 @@ test "common prefix search multi-byte strings with ids" {
     const actual = try da.commonPrefixSearch(allocator, "電気通信大学院大学");
     defer allocator.free(actual);
 
-    const expected = [_]usize{ 1, 3, 5, 11 };
-    try std.testing.expectEqualSlices(usize, &expected, actual);
+    const expected = [_]SearchResult{
+        .{ .id = 1, .length = 6 },
+        .{ .id = 3, .length = 12 },
+        .{ .id = 5, .length = 18 },
+        .{ .id = 11, .length = 27 },
+    };
+    try std.testing.expectEqualSlices(SearchResult, &expected, actual);
 }
 
 test "prefix search ascii strings" {
@@ -651,7 +681,8 @@ test "prefix search ascii strings" {
 
     const result = da.prefixSearch("cab");
     try std.testing.expect(result != null);
-    try std.testing.expectEqual(3, result.?);
+    try std.testing.expectEqual(3, result.?.id);
+    try std.testing.expectEqual(3, result.?.length);
 }
 
 test "prefix search multi-byte strings" {
@@ -669,7 +700,8 @@ test "prefix search multi-byte strings" {
     defer da.deinit(allocator);
 
     const result = da.prefixSearch("電気通信大学大学院電気通信学研究科");
-    try std.testing.expectEqual(4, result.?);
+    try std.testing.expectEqual(4, result.?.id);
+    try std.testing.expectEqual(51, result.?.length);
 }
 
 test "prefix search not found" {
