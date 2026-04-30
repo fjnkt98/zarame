@@ -225,8 +225,8 @@ pub const DoubleArray = struct {
 
             var chars = std.ArrayList(u8).empty;
             defer chars.deinit(allocator);
-            var subtree = std.AutoArrayHashMap(u8, std.ArrayList(usize)).init(allocator);
-            defer subtree.deinit();
+            var subtree = std.AutoHashMapUnmanaged(u8, std.ArrayList(usize)).empty;
+            defer subtree.deinit(allocator);
 
             for (node.edges.items) |i| {
                 const word = words[i];
@@ -236,7 +236,7 @@ pub const DoubleArray = struct {
                     try chars.append(allocator, char);
                 }
                 if (char != terminator) {
-                    const gop = try subtree.getOrPut(char);
+                    const gop = try subtree.getOrPut(allocator, char);
                     if (gop.found_existing) {
                         try gop.value_ptr.*.append(allocator, i);
                     } else {
