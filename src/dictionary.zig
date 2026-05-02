@@ -1,6 +1,16 @@
 const std = @import("std");
 const trie = @import("trie.zig");
 
+/// Header of the binary dictionary file.
+pub const Header = packed struct {
+    magic: u32,
+    version: u32,
+    count: u32,
+};
+
+/// Magic number "ZRM1".
+pub const magic: u32 = 0x5A524D31;
+
 pub const Dictionary = struct {
     index: Index,
     morphs: []const Morph,

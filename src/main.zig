@@ -2,16 +2,12 @@ const std = @import("std");
 const Io = std.Io;
 const lib = @import("zarame");
 const flate = std.compress.flate;
+const dictionary = @import("zarame").dictionary;
 
 const data = @embedFile("poc_ints.bin.gz");
 
-const Header = packed struct {
-    magic: u32,
-    version: u32,
-    count: u32,
-};
-
-const magic = 0x5A524D31; // "ZRM1"
+const Header = dictionary.Header;
+const magic = dictionary.magic;
 
 const integers = blk: {
     @setEvalBranchQuota(10_000_000);

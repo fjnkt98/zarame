@@ -1,6 +1,10 @@
 const std = @import("std");
 const Io = std.Io;
 const flate = std.compress.flate;
+const dictionary = @import("zarame").dictionary;
+
+const Header = dictionary.Header;
+const magic = dictionary.magic;
 
 const usage =
     \\Usage: builder [options]
@@ -9,14 +13,6 @@ const usage =
     \\  --output-file OUTPUT_GZIP_FILE
     \\
 ;
-
-const Header = packed struct {
-    magic: u32,
-    version: u32,
-    count: u32,
-};
-
-const magic = 0x5A524D31; // "ZRM1"
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

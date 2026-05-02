@@ -41,6 +41,27 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    // ----------------------------- dictionary -----------------------------
+    const builder = b.createModule(.{
+        .root_source_file = b.path("src/builder.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    builder.addImport("zarame", lib_mod);
+
+    const builder_exe = b.addExecutable(.{
+        .name = "builder",
+        .root_module = builder,
+    });
+
+    const run_builder = b.addRunArtifact(builder_exe);
+    const filename = "zarame.dict.gz";
+    run_builder.addArg("--output-file");
+    const dictionary = run_builder.addOutputFileArg(filename);
+
+    const builder_step = b.step("dictionary", "build dictionary");
+    builder_step.dependOn(&b.addInstallFileWithDir(dictionary, .{ .custom = "../src" }, filename).step);
+
     // ----------------------------- tests -----------------------------
     const lib_unit_tests = b.addTest(.{
         .root_module = lib_mod,
@@ -52,25 +73,13 @@ pub fn build(b: *std.Build) void {
     });
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
+    const builder_unit_tests = b.addTest(.{
+        .root_module = builder,
+    });
+    const run_builder_unit_tests = b.addRunArtifact(builder_unit_tests);
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
-
-    // ----------------------------- dictionary (poc) -----------------------------
-    // `zig build dictionary` で builder を実行し poc_ints.bin.gz を src/ に生成する。
-    // アプリ側は @embedFile("poc_ints.bin.gz") を comptime で解凍するためビルド時ツール不要。
-    const builder_exe = b.addExecutable(.{
-        .name = "builder",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/builder.zig"),
-            .target = b.graph.host,
-        }),
-    });
-
-    const run_builder = b.addRunArtifact(builder_exe);
-    run_builder.addArg("--output-file");
-    const gz_output = run_builder.addOutputFileArg("poc_ints.bin.gz");
-
-    const builder_step = b.step("dictionary", "build dictionary");
-    builder_step.dependOn(&b.addInstallFileWithDir(gz_output, .{ .custom = "../src" }, "poc_ints.bin.gz").step);
+    test_step.dependOn(&run_builder_unit_tests.step);
 }

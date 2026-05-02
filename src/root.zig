@@ -4,6 +4,8 @@
 const std = @import("std");
 const testing = std.testing;
 
+pub const dictionary = @import("dictionary.zig");
+
 test "test submodules" {
     _ = @import("csv.zig");
     _ = @import("dictionary.zig");
