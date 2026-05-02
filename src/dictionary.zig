@@ -8,7 +8,7 @@ pub const Dictionary = struct {
     matrix: ConnectionMatrix,
 };
 
-const Index = struct {
+pub const Index = struct {
     const Self = @This();
 
     da: trie.DoubleArray,
@@ -171,11 +171,11 @@ pub const ConnectionMatrix = struct {
         allocator.free(self.data);
     }
 
-    pub fn set(self: *Self, row: usize, col: usize, value: i16) void {
-        self.data[row * self.col_size + col] = value;
+    pub fn set(self: *Self, left_id: usize, right_id: usize, value: i16) void {
+        self.data[left_id * self.col_size + right_id] = value;
     }
 
-    pub fn get(self: Self, row: usize, col: usize) i16 {
-        return self.data[row * self.col_size + col];
+    pub fn get(self: Self, left_id: usize, right_id: usize) i16 {
+        return self.data[left_id * self.col_size + right_id];
     }
 };

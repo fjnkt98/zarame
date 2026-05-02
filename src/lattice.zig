@@ -91,8 +91,8 @@ pub const Lattice = struct {
                 .right_id = 0,
                 .cost = 100, // TODO: cost calculation for unknown words
             },
-            .bos => dictionary.Morph.empty,
-            .eos => dictionary.Morph.empty,
+            .bos => dictionary.Morph.zero,
+            .eos => dictionary.Morph.zero,
         };
         const node = Node{
             .id = id,
@@ -127,16 +127,14 @@ pub const Lattice = struct {
         while (i < self.input.len) {
             const size = try std.unicode.utf8ByteSequenceLength(self.input[i]);
 
-            const ids = try self.dict.index.commonPrefixSearch(allocator, self.input[i..]);
-            defer allocator.free(ids);
+            const results = try self.dict.index.commonPrefixSearch(allocator, self.input[i..]);
+            defer allocator.free(results);
 
             var has_single_word = false;
-            for (ids) |id| {
-                const word = self.dict.index.words[id];
+            for (results) |result| {
+                try self.insert(allocator, i, c, result.id, .known, self.input[i .. i + result.length]);
 
-                try self.insert(allocator, i, c, id, .known, self.input[i .. i + word.len]);
-
-                if (!has_single_word and size == word.len) {
+                if (!has_single_word and size == result.length) {
                     has_single_word = true;
                 }
             }
@@ -173,7 +171,7 @@ pub const Lattice = struct {
                 for (0.., prev_nodes) |j, *prev_node| {
                     var transition_cost: i16 = 0;
                     if (current_node.*.class == .known and prev_node.*.class == .known) {
-                        transition_cost += self.dict.matrix.at(prev_node.*.right_id, current_node.*.left_id);
+                        transition_cost += self.dict.matrix.get(prev_node.*.right_id, current_node.*.left_id);
                     }
                     const emission_cost = current_node.*.cost;
                     const cost = prev_node.*.min_cost + emission_cost + transition_cost;
@@ -210,38 +208,31 @@ test "build lattice" {
         "はなし",
         "元気",
     };
-    var da = try trie.DoubleArray.init(allocator, &words);
-    defer da.deinit(allocator);
-    try da.build(allocator);
+    var index = try dictionary.Index.init(allocator, &words);
+    defer index.deinit(allocator);
+
+    var morphs = [_]dictionary.Morph{
+        .{ .left_id = 0, .right_id = 1, .cost = 1 }, // た
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // たら
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // なし
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // なっ
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // に
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // になっ
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // は
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // はなし
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // 元気
+    };
+    var pos_table = try dictionary.PosTable.init(allocator, 9);
+    defer pos_table.deinit(allocator);
+
+    var matrix = try dictionary.ConnectionMatrix.init(allocator, 9, 9);
+    defer matrix.deinit(allocator);
 
     const dict = dictionary.Dictionary{
-        .index = da,
-        .morphs = &[_]dictionary.Morph{
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // た
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // たら
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // なし
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // なっ
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // に
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // になっ
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // は
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // はなし
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // 元気
-        },
-        .matrix = dictionary.Matrix{
-            .row = 9,
-            .col = 9,
-            .data = &[_]i16{
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-            },
-        },
+        .index = index,
+        .morphs = &morphs,
+        .pos_table = pos_table,
+        .matrix = matrix,
     };
 
     var lattice = try Lattice.init(allocator, "はなしたら元気になった", dict);
@@ -271,38 +262,31 @@ test "solve viterbi" {
         "はなし",
         "元気",
     };
-    var da = try trie.DoubleArray.init(allocator, &words);
-    defer da.deinit(allocator);
-    try da.build(allocator);
+    var index = try dictionary.Index.init(allocator, &words);
+    defer index.deinit(allocator);
+
+    var morphs = [_]dictionary.Morph{
+        .{ .left_id = 0, .right_id = 1, .cost = 1 }, // た
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // たら
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // なし
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // なっ
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // に
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // になっ
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // は
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // はなし
+        .{ .left_id = 0, .right_id = 0, .cost = 1 }, // 元気
+    };
+    var pos_table = try dictionary.PosTable.init(allocator, 9);
+    defer pos_table.deinit(allocator);
+
+    var matrix = try dictionary.ConnectionMatrix.init(allocator, 9, 9);
+    defer matrix.deinit(allocator);
 
     const dict = dictionary.Dictionary{
-        .index = da,
-        .morphs = &[_]dictionary.Morph{
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // た
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // たら
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // なし
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // なっ
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // に
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // になっ
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // は
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // はなし
-            .{ .left_id = 0, .right_id = 0, .cost = 1 }, // 元気
-        },
-        .matrix = dictionary.Matrix{
-            .row = 9,
-            .col = 9,
-            .data = &[_]i16{
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-            },
-        },
+        .index = index,
+        .morphs = &morphs,
+        .pos_table = pos_table,
+        .matrix = matrix,
     };
 
     const input = "はなしたら元気になった";

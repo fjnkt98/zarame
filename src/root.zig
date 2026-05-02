@@ -5,6 +5,8 @@ const std = @import("std");
 const testing = std.testing;
 
 test "test submodules" {
+    _ = @import("csv.zig");
+    _ = @import("dictionary.zig");
+    _ = @import("lattice.zig");
     _ = @import("trie.zig");
-    // _ = @import("lattice.zig");
 }
