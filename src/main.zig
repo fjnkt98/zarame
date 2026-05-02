@@ -1,5 +1,9 @@
 const std = @import("std");
+const Io = std.Io;
 const lib = @import("zarame");
+const flate = std.compress.flate;
+
+const data = @embedFile("poc_ints.bin.gz");
 
 const Header = packed struct {
     magic: u32,
@@ -9,45 +13,27 @@ const Header = packed struct {
 
 const magic = 0x504f4331;
 
-/// gzip ファイルをビルド時（comptime）に解凍した生バイト列。
-/// ランタイムの解凍処理は一切不要。
-const poc_bytes: [
-    blk: {
-        // gzip の末尾 4 バイト (ISIZE) が解凍後サイズ (mod 2^32)
-        const gz = @embedFile("poc_ints.bin.gz");
-        break :blk std.mem.readInt(u32, gz[gz.len - 4 ..][0..4], .little);
-    }
-]u8 align(@alignOf(i32)) = blk: {
+const integers = blk: {
     @setEvalBranchQuota(10_000_000);
-    const gz = @embedFile("poc_ints.bin.gz");
-    const sz = std.mem.readInt(u32, gz[gz.len - 4 ..][0..4], .little);
-    var buf: [sz]u8 = undefined;
-    var in: std.Io.Reader = .fixed(gz);
-    var out: std.Io.Writer = .fixed(&buf);
-    var dc: std.compress.flate.Decompress = .init(&in, .gzip, &.{});
-    _ = dc.reader.streamRemaining(&out) catch @compileError("gzip decompression failed");
-    break :blk buf;
-};
+    const size = std.mem.readInt(u32, data[data.len - 4 ..][0..4], .little);
 
-/// comptime でヘッダーを検証し i32 配列を返す。
-/// []const i32（スライス）は comptime では返せないため [N]i32 固定長配列として定義する。
-const poc_ints: [
-    blk: {
-        if (poc_bytes.len < @sizeOf(Header)) @compileError("binary too short");
-        if (std.mem.readInt(u32, poc_bytes[0..4], .little) != magic) @compileError("invalid magic");
-        if (std.mem.readInt(u32, poc_bytes[4..8], .little) != 1) @compileError("unsupported version");
-        const count = std.mem.readInt(u32, poc_bytes[8..12], .little);
-        if (poc_bytes.len != @sizeOf(Header) + count * @sizeOf(i32)) @compileError("size mismatch");
-        break :blk count;
-    }
-]i32 = blk: {
-    const count = std.mem.readInt(u32, poc_bytes[8..12], .little);
-    var arr: [count]i32 = undefined;
+    var buf: [size]u8 = undefined;
+    var input = Io.Reader.fixed(data);
+    var output = Io.Writer.fixed(&buf);
+    var dc = flate.Decompress.init(&input, .gzip, &.{});
+    _ = dc.reader.streamRemaining(&output) catch @compileError("gzip decompression failed");
+
+    if (buf.len < @sizeOf(Header)) @compileError("binary too short");
+    if (std.mem.readInt(u32, buf[0..4], .little) != magic) @compileError("invalid magic");
+    if (std.mem.readInt(u32, buf[4..8], .little) != 1) @compileError("unsupported version");
+
+    const count = std.mem.readInt(u32, buf[8..12], .little);
+    var result: [count]i32 = undefined;
     for (0..count) |i| {
         const offset = @sizeOf(Header) + i * @sizeOf(i32);
-        arr[i] = std.mem.readInt(i32, poc_bytes[offset..][0..4], .little);
+        result[i] = std.mem.readInt(i32, buf[offset..][0..4], .little);
     }
-    break :blk arr;
+    break :blk result;
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -55,14 +41,11 @@ pub fn main(init: std.process.Init) !void {
 
     const io = init.io;
     var buffer: [1024]u8 = undefined;
-    var writer = std.Io.File.stdout().writer(io, &buffer);
+    var writer = Io.File.stdout().writer(io, &buffer);
     const stdout = &writer.interface;
 
-    // poc_ints はコンパイル時にパース済みの i32 配列 — ランタイムコストはゼロ
-    const ints = &poc_ints;
-
-    try stdout.print("Loaded {d} ints from comptime-decompressed binary: ", .{ints.len});
-    for (ints, 0..) |value, i| {
+    try stdout.print("Loaded {d} integers from comptime-decompressed binary: ", .{integers.len});
+    for (integers, 0..) |value, i| {
         if (i > 0) try stdout.print(", ", .{});
         try stdout.print("{d}", .{value});
     }
