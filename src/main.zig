@@ -4,33 +4,49 @@ const lib = @import("zarame");
 const flate = std.compress.flate;
 const dictionary = @import("zarame").dictionary;
 
-const data = @embedFile("poc_ints.bin.gz");
+const gz_data = @embedFile("zarame.dict.gz");
 
 const Header = dictionary.Header;
 const magic = dictionary.magic;
+const Morph = dictionary.Morph;
 
-const integers = blk: {
-    @setEvalBranchQuota(10_000_000);
-    const size = std.mem.readInt(u32, data[data.len - 4 ..][0..4], .little);
+const encoded_morph_size = @sizeOf(u32) + @sizeOf(u32) + @sizeOf(i16);
 
-    var buf: [size]u8 = undefined;
-    var input = Io.Reader.fixed(data);
-    var output = Io.Writer.fixed(&buf);
-    var dc = flate.Decompress.init(&input, .gzip, &.{});
-    _ = dc.reader.streamRemaining(&output) catch @compileError("gzip decompression failed");
+fn loadMorphs(allocator: std.mem.Allocator) ![]Morph {
+    // Decompress at runtime.
+    var in: Io.Reader = .fixed(gz_data);
+    var out: Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    var dc: flate.Decompress = .init(&in, .gzip, &.{});
+    _ = try dc.reader.streamRemaining(&out.writer);
+    const buf = try out.toOwnedSlice();
+    defer allocator.free(buf);
 
-    if (buf.len < @sizeOf(Header)) @compileError("binary too short");
-    if (std.mem.readInt(u32, buf[0..4], .little) != magic) @compileError("invalid magic");
-    if (std.mem.readInt(u32, buf[4..8], .little) != 1) @compileError("unsupported version");
+    if (buf.len < @sizeOf(Header)) return error.InvalidDictionary;
 
+    const magic_val = std.mem.readInt(u32, buf[0..4], .little);
+    const version = std.mem.readInt(u32, buf[4..8], .little);
     const count = std.mem.readInt(u32, buf[8..12], .little);
-    var result: [count]i32 = undefined;
+
+    if (magic_val != magic) return error.InvalidDictionary;
+    if (version != 1) return error.UnsupportedDictionaryVersion;
+    if (buf.len != @sizeOf(Header) + count * encoded_morph_size) return error.InvalidDictionary;
+
+    const morphs = try allocator.alloc(Morph, count);
+    errdefer allocator.free(morphs);
+
+    const off_right = @sizeOf(u32);
+    const off_cost = off_right + @sizeOf(u32);
     for (0..count) |i| {
-        const offset = @sizeOf(Header) + i * @sizeOf(i32);
-        result[i] = std.mem.readInt(i32, buf[offset..][0..4], .little);
+        const off = @sizeOf(Header) + i * encoded_morph_size;
+        morphs[i] = .{
+            .left_id = @as(usize, std.mem.readInt(u32, buf[off..][0..4], .little)),
+            .right_id = @as(usize, std.mem.readInt(u32, buf[off + off_right ..][0..4], .little)),
+            .cost = std.mem.readInt(i16, buf[off + off_cost ..][0..2], .little),
+        };
     }
-    break :blk result;
-};
+    return morphs;
+}
 
 pub fn main(init: std.process.Init) !void {
     _ = lib;
@@ -39,13 +55,14 @@ pub fn main(init: std.process.Init) !void {
     var buffer: [1024]u8 = undefined;
     var writer = Io.File.stdout().writer(io, &buffer);
     const stdout = &writer.interface;
+    const allocator = init.arena.allocator();
 
-    try stdout.print("Loaded {d} integers from comptime-decompressed binary: ", .{integers.len});
-    for (integers, 0..) |value, i| {
-        if (i > 0) try stdout.print(", ", .{});
-        try stdout.print("{d}", .{value});
+    const morphs = try loadMorphs(allocator);
+
+    try stdout.print("Loaded {d} morphs.\n", .{morphs.len});
+    const preview_len: usize = @min(morphs.len, 5);
+    for (morphs[0..preview_len], 0..) |morph, i| {
+        try stdout.print("  [{d}] left={d} right={d} cost={d}\n", .{ i, morph.left_id, morph.right_id, morph.cost });
     }
-    try stdout.print("\n", .{});
-
     try stdout.flush();
 }

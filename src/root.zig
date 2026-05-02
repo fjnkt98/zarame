@@ -4,7 +4,10 @@
 const std = @import("std");
 const testing = std.testing;
 
+pub const csv = @import("csv.zig");
 pub const dictionary = @import("dictionary.zig");
+pub const lattice = @import("lattice.zig");
+pub const trie = @import("trie.zig");
 
 test "test submodules" {
     _ = @import("csv.zig");
