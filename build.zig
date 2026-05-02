@@ -67,8 +67,8 @@ pub fn build(b: *std.Build) void {
 
     const run_builder = b.addRunArtifact(builder);
     run_builder.addArg("--output-file");
-    const output = run_builder.addOutputFileArg("poc_ints.bin");
+    const output = run_builder.addOutputFileArg("poc_ints.bin.gz");
 
     const builder_step = b.step("dictionary", "build dictionary");
-    builder_step.dependOn(&b.addInstallFileWithDir(output, .{ .custom = "../src" }, "poc_ints.bin").step);
+    builder_step.dependOn(&b.addInstallFileWithDir(output, .{ .custom = "../src" }, "poc_ints.bin.gz").step);
 }

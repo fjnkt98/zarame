@@ -1,11 +1,12 @@
 const std = @import("std");
 const Io = std.Io;
+const flate = std.compress.flate;
 
 const usage =
     \\Usage: builder [options]
     \\
     \\Options:
-    \\  --output-file OUTPUT_BIN_FILE
+    \\  --output-file OUTPUT_GZIP_FILE
     \\
 ;
 
@@ -52,7 +53,7 @@ pub fn main(init: std.process.Init) !void {
 
     var values = std.ArrayList(i32).empty;
     defer values.deinit(arena);
-    for (0..8) |i| {
+    for (0..10) |i| {
         try values.append(arena, @as(i32, @intCast((i + 1) * 11)));
     }
 
@@ -61,8 +62,17 @@ pub fn main(init: std.process.Init) !void {
         .version = 1,
         .count = @intCast(values.items.len),
     };
-    try output_file.writeStreamingAll(io, std.mem.asBytes(&header));
-    try output_file.writeStreamingAll(io, std.mem.sliceAsBytes(values.items));
+
+    var out_buffer: [4096]u8 = undefined;
+    var out_writer = output_file.writer(io, &out_buffer);
+
+    var window: [flate.max_window_len]u8 = undefined;
+    var compressor = try flate.Compress.init(&out_writer.interface, &window, .gzip, .best);
+    try compressor.writer.writeAll(std.mem.asBytes(&header));
+    try compressor.writer.writeAll(std.mem.sliceAsBytes(values.items));
+    try compressor.finish();
+    try out_writer.interface.flush();
+
     return std.process.cleanExit(io);
 }
 
