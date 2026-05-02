@@ -56,8 +56,10 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
 
-    // dictionary(poc)
-    const builder = b.addExecutable(.{
+    // ----------------------------- dictionary (poc) -----------------------------
+    // `zig build dictionary` で builder を実行し poc_ints.bin.gz を src/ に生成する。
+    // アプリ側は @embedFile("poc_ints.bin.gz") を comptime で解凍するためビルド時ツール不要。
+    const builder_exe = b.addExecutable(.{
         .name = "builder",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/builder.zig"),
@@ -65,10 +67,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const run_builder = b.addRunArtifact(builder);
+    const run_builder = b.addRunArtifact(builder_exe);
     run_builder.addArg("--output-file");
-    const output = run_builder.addOutputFileArg("poc_ints.bin.gz");
+    const gz_output = run_builder.addOutputFileArg("poc_ints.bin.gz");
 
     const builder_step = b.step("dictionary", "build dictionary");
-    builder_step.dependOn(&b.addInstallFileWithDir(output, .{ .custom = "../src" }, "poc_ints.bin.gz").step);
+    builder_step.dependOn(&b.addInstallFileWithDir(gz_output, .{ .custom = "../src" }, "poc_ints.bin.gz").step);
 }
