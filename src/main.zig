@@ -11,7 +11,7 @@ const Header = packed struct {
     count: u32,
 };
 
-const magic = 0x504f4331;
+const magic = 0x5A524D31; // "ZRM1"
 
 const integers = blk: {
     @setEvalBranchQuota(10_000_000);

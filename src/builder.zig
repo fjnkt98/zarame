@@ -16,7 +16,7 @@ const Header = packed struct {
     count: u32,
 };
 
-const magic = 0x504f4331; // POC1
+const magic = 0x5A524D31; // "ZRM1"
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
