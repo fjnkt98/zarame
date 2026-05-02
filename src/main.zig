@@ -24,9 +24,9 @@ fn loadMorphs(allocator: std.mem.Allocator) ![]Morph {
 
     if (buf.len < @sizeOf(Header)) return error.InvalidDictionary;
 
-    const magic_val = std.mem.readInt(u32, buf[0..4], .little);
-    const version = std.mem.readInt(u32, buf[4..8], .little);
-    const count = std.mem.readInt(u32, buf[8..12], .little);
+    const magic_val = std.mem.readInt(u64, buf[0..8], .little);
+    const version = std.mem.readInt(u32, buf[8..12], .little);
+    const count = std.mem.readInt(u32, buf[12..16], .little);
 
     if (magic_val != magic) return error.InvalidDictionary;
     if (version != 1) return error.UnsupportedDictionaryVersion;

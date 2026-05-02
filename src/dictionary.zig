@@ -3,13 +3,13 @@ const trie = @import("trie.zig");
 
 /// Header of the binary dictionary file.
 pub const Header = packed struct {
-    magic: u32,
+    magic: u64,
     version: u32,
     count: u32,
 };
 
-/// Magic number "ZRM1".
-pub const magic: u32 = 0x5A524D31;
+/// Magic number "ZARAME01".
+pub const magic: u64 = 0x3130454D4152415A;
 
 pub const Dictionary = struct {
     index: Index,

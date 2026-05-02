@@ -55,12 +55,13 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_builder = b.addRunArtifact(builder_exe);
-    const filename = "zarame.dict.gz";
-    run_builder.addArg("--output-file");
-    const dictionary = run_builder.addOutputFileArg(filename);
+    run_builder.addFileArg(b.path("src/resource/lex.csv"));
+    const dict_gz = run_builder.addOutputFileArg("zarame.dict.gz");
 
+    // `zig build dictionary` installs zarame.dict.gz to src/.
+    // `zig build` (app build) expects src/zarame.dict.gz to already exist.
     const builder_step = b.step("dictionary", "build dictionary");
-    builder_step.dependOn(&b.addInstallFileWithDir(dictionary, .{ .custom = "../src" }, filename).step);
+    builder_step.dependOn(&b.addInstallFileWithDir(dict_gz, .{ .custom = "../src" }, "zarame.dict.gz").step);
 
     // ----------------------------- tests -----------------------------
     const lib_unit_tests = b.addTest(.{
