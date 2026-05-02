@@ -56,8 +56,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
 
-    // dictionary(wip)
-    const lang = b.option([]const u8, "language", "language of the greeting") orelse "en";
+    // dictionary(poc)
     const builder = b.addExecutable(.{
         .name = "builder",
         .root_module = b.createModule(.{
@@ -67,12 +66,9 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_builder = b.addRunArtifact(builder);
-    run_builder.addArg("--input-file");
-    run_builder.addFileArg(b.path("src/words.json"));
     run_builder.addArg("--output-file");
-    const output = run_builder.addOutputFileArg("word.txt");
-    run_builder.addArgs(&.{ "--lang", lang });
+    const output = run_builder.addOutputFileArg("poc_ints.bin");
 
     const builder_step = b.step("dictionary", "build dictionary");
-    builder_step.dependOn(&b.addInstallFileWithDir(output, .{ .custom = "../src" }, "word.txt").step);
+    builder_step.dependOn(&b.addInstallFileWithDir(output, .{ .custom = "../src" }, "poc_ints.bin").step);
 }

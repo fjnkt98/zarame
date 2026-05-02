@@ -2,14 +2,20 @@ const std = @import("std");
 const Io = std.Io;
 
 const usage =
-    \\Usage: word_select [options]
+    \\Usage: builder [options]
     \\
     \\Options:
-    \\  --input-file INPUT_JSON_FILE
-    \\  --output-file OUTPUT_TXT_FILE
-    \\  --lang LANG
+    \\  --output-file OUTPUT_BIN_FILE
     \\
 ;
+
+const Header = packed struct {
+    magic: u32,
+    version: u32,
+    count: u32,
+};
+
+const magic = 0x504f4331; // POC1
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -17,9 +23,7 @@ pub fn main(init: std.process.Init) !void {
 
     const args = try init.minimal.args.toSlice(arena);
 
-    var opt_input_file_path: ?[]const u8 = null;
     var opt_output_file_path: ?[]const u8 = null;
-    var opt_lang: ?[]const u8 = null;
 
     {
         var i: usize = 1;
@@ -28,51 +32,37 @@ pub fn main(init: std.process.Init) !void {
             if (std.mem.eql(u8, "-h", arg) or std.mem.eql(u8, "--help", arg)) {
                 try Io.File.stdout().writeStreamingAll(io, usage);
                 return std.process.cleanExit(io);
-            } else if (std.mem.eql(u8, "--input-file", arg)) {
-                i += 1;
-                if (i > args.len) fatal("expected arg after '{s}'", .{arg});
-                if (opt_input_file_path != null) fatal("duplicated {s} argument", .{arg});
-                opt_input_file_path = args[i];
             } else if (std.mem.eql(u8, "--output-file", arg)) {
                 i += 1;
                 if (i > args.len) fatal("expected arg after '{s}'", .{arg});
                 if (opt_output_file_path != null) fatal("duplicated {s} argument", .{arg});
                 opt_output_file_path = args[i];
-            } else if (std.mem.eql(u8, "--lang", arg)) {
-                i += 1;
-                if (i > args.len) fatal("expected arg after '{s}'", .{arg});
-                if (opt_lang != null) fatal("duplicated {s} argument", .{arg});
-                opt_lang = args[i];
             } else {
                 fatal("unexpected argument: '{s}'", .{arg});
             }
         }
     }
 
-    const input_file_path = opt_input_file_path orelse fatal("missing --input-file", .{});
     const output_file_path = opt_output_file_path orelse fatal("missing --output-file", .{});
-    const lang = opt_lang orelse fatal("missing --lang", .{});
-
-    var input_file = Io.Dir.cwd().openFile(io, input_file_path, .{}) catch |err| {
-        fatal("unable to open '{s}': {s}", .{ input_file_path, @errorName(err) });
-    };
-    defer input_file.close(io);
-    var input_file_buffer: [1000]u8 = undefined;
-    var input_file_reader = input_file.reader(io, &input_file_buffer);
 
     var output_file = Io.Dir.cwd().createFile(io, output_file_path, .{}) catch |err| {
         fatal("unable to open '{s}': {s}", .{ output_file_path, @errorName(err) });
     };
     defer output_file.close(io);
 
-    var json_reader = std.json.Reader.init(arena, &input_file_reader.interface);
-    var words = try std.json.ArrayHashMap([]const u8).jsonParse(arena, &json_reader, .{
-        .allocate = .alloc_if_needed,
-        .max_value_len = 1000,
-    });
-    const w = words.map.get(lang) orelse fatal("lang not found in JSON file.", .{});
+    var values = std.ArrayList(i32).empty;
+    defer values.deinit(arena);
+    for (0..8) |i| {
+        try values.append(arena, @as(i32, @intCast((i + 1) * 11)));
+    }
 
-    try output_file.writeStreamingAll(io, w);
+    const header = Header{
+        .magic = magic,
+        .version = 1,
+        .count = @intCast(values.items.len),
+    };
+    try output_file.writeStreamingAll(io, std.mem.asBytes(&header));
+    try output_file.writeStreamingAll(io, std.mem.sliceAsBytes(values.items));
     return std.process.cleanExit(io);
 }
 
