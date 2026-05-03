@@ -17,6 +17,7 @@ pub fn main(init: std.process.Init) !void {
 
     const dictionary = try zarame.dictionary.Dictionary.load(allocator);
     try stdout.print("Loaded {d} morphs, matrix rows={d}, cols={d}. Double array size is {d}.\n", .{ dictionary.morphs.len, dictionary.matrix.row_size, dictionary.matrix.col_size, dictionary.index.da.base.items.len });
+    try stdout.flush();
 
     while (try stdin.takeDelimiter('\n')) |line| {
         var lattice = try zarame.lattice.Lattice.init(allocator, line, dictionary);

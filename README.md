@@ -1,36 +1,51 @@
 # zarame
 
-lex.csv: 語彙ファイル。表層系、左文脈ID、右文脈ID、生起コスト、品詞分類1〜4と、その他単語情報を含む。
-matrix.def: 左文脈IDと右文脈IDの連接コスト一覧。
-char.def:
-unk.def: 未知語一覧。
+A Japanese morphological analyzer written in Zig.
+It tokenizes Japanese text into words with the dictionary embedded in the binary.
 
-matrix.def -> ConnectionMatrix = struct {
-data: []i16
-}
+## Zig version
 
-ダブル配列は語彙の表層系しか取らない
-重複・未ソートを許容しない
-共通接頭辞検索の結果をIDで返すのでその対応が取れていればOK
+The minimum required Zig version is 0.16.0.
 
-インデックステーブルは単語の重複を許容するが未ソートを許容しない
-重複を取り除いた版の単語リストをダブル配列に与えて接頭辞検索を行い、ダブル配列から帰ってきた結果に対して同じ表層系を持つ単語の一覧を返す
+## UniDic version
 
-ラティスの構築には表層系をキーとしてその単語の左文脈ID、右文脈ID、生起コストを取得する必要がある
-連接表は左文脈IDと右文脈IDをキーとして連接コストを返す
+Only unidic-cwj-202512 is supported at this time.
 
-形態素解析の結果として、辞書に登録されている品詞などの付加情報を返さないといけない。これをPOSテーブルとして記録しておく必要がある。
+## Usage
 
-内部的に辞書の単語にIDを振り、インデックステーブル、ラティス、POSテーブルで共有しなければならない。
-ダブル配列も内部的に単語(というか表層系)にIDを振り、そのIDで結果を返す。単語IDとのマッピングはインデックステーブルが担当する。
+### Running the sample application
 
-品詞情報は解析中は一切参照せず、形態素解析の結果を表示するときにだけ参照するので、ただデータとして持っておくだけでいい。
+Run the following command to launch the sample application.
+It tokenizes Japanese text read from standard input into individual words.
 
-lex.csvを読み込むときは、まず全ての行を読み取って辞書順にソートしてから、
+```sh
+zig build run -Doptimize=ReleaseSafe
+```
 
-1. 表層系を0列目から読み取って表層系一覧に追加
-2. 左文脈IDを1列目から、右文脈IDを2列目から、生起コストを3列目から読み取り、形態素としてまとめて形態素一覧に記録
-3. 4〜7列目から品詞情報を読み取り、品詞IDに変換して品詞一覧に記録
-4. 残りの情報をコンテンツ情報として記録
+> ```sh
+> $ zig build run -Doptimize=ReleaseSafe
+> 今日はいい天気ですね。
+> Loaded 1027505 morphs, matrix rows=24082, cols=21375. Double array size is 2688901.
+> BOS
+> 今日
+> は
+> いい
+> 天気
+> です
+> ね
+> 。
+> EOS
+> ```
 
-を各行に対して行い、行番号をそのまま単語IDとして割り振る。
+Note: the application uses several gigabytes of memory at runtime.
+
+### Building the dictionary
+
+Place `lex.csv` and `matrix.def` in `src/resource/`, then run:
+
+```sh
+zig build dictionary -Doptimize=ReleaseSafe
+```
+
+Note: the build process uses several gigabytes of memory.
+Once complete, `src/zarame.dict.gz` will be generated.
