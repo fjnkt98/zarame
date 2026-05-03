@@ -1,7 +1,9 @@
 const std = @import("std");
+const Io = std.Io;
+const flate = std.compress.flate;
+
 const trie = @import("trie.zig");
 const csv = @import("csv.zig");
-const Io = std.Io;
 
 const embedded = @embedFile("zarame.dict.gz");
 
@@ -115,7 +117,67 @@ pub const Dictionary = struct {
         };
     }
 
-    // pub fn save(self: Self, allocator: std.mem.Allocator, io: Io) !void {}
+    pub fn save(self: Self, io: Io) !void {
+        const header = Header{
+            .magic = magic,
+        };
+        var buf: [4096]u8 = undefined;
+        var file = try Io.Dir.cwd().createFile(io, "src/zarame.dict.gz", .{});
+        var writer = file.writer(io, &buf);
+
+        var window: [flate.max_window_len]u8 = undefined;
+        var compressor = try flate.Compress.init(&writer.interface, &window, .gzip, .best);
+        try compressor.writer.writeAll(std.mem.asBytes(&header));
+
+        var i16_buf: [@sizeOf(i16)]u8 = undefined;
+        var i32_buf: [@sizeOf(i32)]u8 = undefined;
+        var u64_buf: [@sizeOf(u64)]u8 = undefined;
+
+        // index
+        std.mem.writeInt(u64, &u64_buf, @intCast(self.index.da.base.items.len), .little);
+        try compressor.writer.writeAll(&u64_buf);
+        for (0..self.index.da.base.items.len) |i| {
+            std.mem.writeInt(i32, &i32_buf, self.index.da.base.items[i], .little);
+            try compressor.writer.writeAll(&i32_buf);
+            std.mem.writeInt(i32, &i32_buf, self.index.da.check.items[i], .little);
+            try compressor.writer.writeAll(&i32_buf);
+        }
+
+        std.mem.writeInt(u64, &u64_buf, @intCast(self.index.dup.size), .little);
+        try compressor.writer.writeAll(&u64_buf);
+        var iterator = self.index.dup.iterator();
+        while (iterator.next()) |entry| {
+            std.mem.writeInt(u64, &u64_buf, @intCast(entry.key_ptr.*), .little);
+            try compressor.writer.writeAll(&u64_buf);
+            std.mem.writeInt(u64, &u64_buf, @intCast(entry.value_ptr.*), .little);
+            try compressor.writer.writeAll(&u64_buf);
+        }
+
+        // morphs
+        std.mem.writeInt(u64, &u64_buf, @intCast(self.morphs.len), .little);
+        try compressor.writer.writeAll(&u64_buf);
+        for (self.morphs) |morph| {
+            std.mem.writeInt(u64, &u64_buf, @intCast(morph.left_id), .little);
+            try compressor.writer.writeAll(&u64_buf);
+            std.mem.writeInt(u64, &u64_buf, @intCast(morph.right_id), .little);
+            try compressor.writer.writeAll(&u64_buf);
+            std.mem.writeInt(i16, &i16_buf, morph.cost, .little);
+            try compressor.writer.writeAll(&i16_buf);
+        }
+
+        // matrix
+        std.mem.writeInt(u64, &u64_buf, @intCast(self.matrix.row_size), .little);
+        try compressor.writer.writeAll(&u64_buf);
+        std.mem.writeInt(u64, &u64_buf, @intCast(self.matrix.col_size), .little);
+        try compressor.writer.writeAll(&u64_buf);
+        for (self.matrix.data) |value| {
+            std.mem.writeInt(i16, &i16_buf, value, .little);
+            try compressor.writer.writeAll(&i16_buf);
+        }
+
+        try compressor.finish();
+        try writer.interface.flush();
+    }
 };
 
 pub const Index = struct {
