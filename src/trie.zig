@@ -379,6 +379,9 @@ pub const DoubleArray = struct {
 
             for (chars) |c| {
                 const t = x + @as(i32, c);
+                if (t >= self.base.items.len) {
+                    try self.expand(allocator);
+                }
                 if (self.check.items[@as(usize, @intCast(t))] >= 0) {
                     continue :seek;
                 }

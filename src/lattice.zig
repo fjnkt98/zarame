@@ -222,8 +222,8 @@ test "build lattice" {
         .{ .left_id = 0, .right_id = 0, .cost = 1 }, // はなし
         .{ .left_id = 0, .right_id = 0, .cost = 1 }, // 元気
     };
-    var pos_table = try dictionary.PosTable.init(allocator, 9);
-    defer pos_table.deinit(allocator);
+    // var pos_table = try dictionary.PosTable.init(allocator, 9);
+    // defer pos_table.deinit(allocator);
 
     var matrix = try dictionary.ConnectionMatrix.init(allocator, 9, 9);
     defer matrix.deinit(allocator);
@@ -231,7 +231,7 @@ test "build lattice" {
     const dict = dictionary.Dictionary{
         .index = index,
         .morphs = &morphs,
-        .pos_table = pos_table,
+        // .pos_table = pos_table,
         .matrix = matrix,
     };
 
@@ -276,8 +276,8 @@ test "solve viterbi" {
         .{ .left_id = 0, .right_id = 0, .cost = 1 }, // はなし
         .{ .left_id = 0, .right_id = 0, .cost = 1 }, // 元気
     };
-    var pos_table = try dictionary.PosTable.init(allocator, 9);
-    defer pos_table.deinit(allocator);
+    // var pos_table = try dictionary.PosTable.init(allocator, 9);
+    // defer pos_table.deinit(allocator);
 
     var matrix = try dictionary.ConnectionMatrix.init(allocator, 9, 9);
     defer matrix.deinit(allocator);
@@ -285,7 +285,7 @@ test "solve viterbi" {
     const dict = dictionary.Dictionary{
         .index = index,
         .morphs = &morphs,
-        .pos_table = pos_table,
+        // .pos_table = pos_table,
         .matrix = matrix,
     };
 
