@@ -7,11 +7,6 @@ const csv = @import("csv.zig");
 
 const embedded = @embedFile("zarame.dict.gz");
 
-/// Header of the binary dictionary file.
-pub const Header = packed struct {
-    magic: u64,
-};
-
 /// Magic number "ZARAME01".
 pub const magic: u64 = 0x3130454D4152415A;
 
@@ -28,7 +23,77 @@ pub const Dictionary = struct {
         self.matrix.deinit(allocator);
     }
 
-    // pub fn load(allocator: std.mem.Allocator, io: Io) !Self {}
+    pub fn load(allocator: std.mem.Allocator) !Self {
+        var input = Io.Reader.fixed(embedded);
+        var buffer: [1024 * 1024]u8 = undefined;
+        var decompressor = flate.Decompress.init(&input, .gzip, &buffer);
+        const reader = &decompressor.reader;
+
+        // header
+        const header = try reader.takeInt(u64, .little);
+        if (header != magic) {
+            return error.InvalidDictionary;
+        }
+
+        // index
+        const da_len = try reader.takeInt(u64, .little);
+        var base = try std.ArrayList(i32).initCapacity(allocator, da_len);
+        errdefer base.deinit(allocator);
+        var check = try std.ArrayList(i32).initCapacity(allocator, da_len);
+        errdefer check.deinit(allocator);
+
+        for (0..da_len) |_| {
+            const b = try reader.takeInt(i32, .little);
+            const c = try reader.takeInt(i32, .little);
+            try base.append(allocator, b);
+            try check.append(allocator, c);
+        }
+
+        const dup_size = try reader.takeInt(u64, .little);
+        var dup = std.AutoHashMapUnmanaged(usize, usize).empty;
+        for (0..dup_size) |_| {
+            const key = try reader.takeInt(u64, .little);
+            const value = try reader.takeInt(u64, .little);
+            try dup.put(allocator, @intCast(key), @intCast(value));
+        }
+
+        const index = Index{
+            .da = .{
+                .base = base,
+                .check = check,
+            },
+            .dup = dup,
+        };
+
+        // morphs
+        const morph_count = try reader.takeInt(u64, .little);
+        var morphs = try allocator.alloc(Morph, morph_count);
+        for (0..morph_count) |i| {
+            const left_id = try reader.takeInt(u64, .little);
+            const right_id = try reader.takeInt(u64, .little);
+            const cost = try reader.takeInt(i16, .little);
+            morphs[i] = .{
+                .left_id = @intCast(left_id),
+                .right_id = @intCast(right_id),
+                .cost = cost,
+            };
+        }
+
+        // matrix
+        const row_size = try reader.takeInt(u64, .little);
+        const col_size = try reader.takeInt(u64, .little);
+        var matrix = try ConnectionMatrix.init(allocator, @intCast(row_size), @intCast(col_size));
+        for (0..row_size * col_size) |i| {
+            const value = try reader.takeInt(i16, .little);
+            matrix.data[i] = value;
+        }
+
+        return Self{
+            .index = index,
+            .morphs = morphs,
+            .matrix = matrix,
+        };
+    }
 
     pub fn build(allocator: std.mem.Allocator, io: Io) !Self {
         const index, const morphs = blk: {
@@ -118,20 +183,20 @@ pub const Dictionary = struct {
     }
 
     pub fn save(self: Self, io: Io) !void {
-        const header = Header{
-            .magic = magic,
-        };
         var buf: [4096]u8 = undefined;
         var file = try Io.Dir.cwd().createFile(io, "src/zarame.dict.gz", .{});
         var writer = file.writer(io, &buf);
 
         var window: [flate.max_window_len]u8 = undefined;
         var compressor = try flate.Compress.init(&writer.interface, &window, .gzip, .best);
-        try compressor.writer.writeAll(std.mem.asBytes(&header));
 
         var i16_buf: [@sizeOf(i16)]u8 = undefined;
         var i32_buf: [@sizeOf(i32)]u8 = undefined;
         var u64_buf: [@sizeOf(u64)]u8 = undefined;
+
+        // header
+        std.mem.writeInt(u64, &u64_buf, magic, .little);
+        try compressor.writer.writeAll(&u64_buf);
 
         // index
         std.mem.writeInt(u64, &u64_buf, @intCast(self.index.da.base.items.len), .little);
